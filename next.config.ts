@@ -63,7 +63,15 @@ const nextConfig: NextConfig = {
     ],
   },
 
+  // outputFileTracingIncludes: tells Next.js which files to include in the
+  // standalone bundle beyond what its automatic tracer detects. The automatic
+  // tracer is conservative — it misses dynamic requires, native addons, and
+  // JSON files loaded at runtime. Without these entries, the standalone
+  // server crashes on Render with HTTP 502 because firebase-admin's internal
+  // files (protobuf JSON descriptors, grpc fallback, etc.) are missing.
   outputFileTracingIncludes: {
+    '/': ['./node_modules/firebase-admin/**/*.js', './node_modules/firebase-admin/**/*.json', './node_modules/@grpc/**/*', './node_modules/@firebase/**/*.js', './node_modules/google-gax/**/*.js', './node_modules/google-gax/**/*.json', './node_modules/protoc-gen-grpc/**/*.js', './apps-script/code.gs'],
+    '/api/**': ['./node_modules/firebase-admin/**/*.js', './node_modules/firebase-admin/**/*.json', './node_modules/@grpc/**/*', './node_modules/@firebase/**/*.js', './node_modules/google-gax/**/*.js', './node_modules/google-gax/**/*.json', './apps-script/code.gs'],
     '/api/apps-script-code': ['./apps-script/code.gs'],
   },
 
