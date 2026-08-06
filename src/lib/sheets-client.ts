@@ -379,7 +379,7 @@ export async function listRows<T = any>(
     if (cached) return cached
   }
 
-  const db = getDb()
+  const db = await getDb()
   if (!db) return [] as T[]
 
   // Legacy Apps Script fallback — kept so old deployments don't break.
@@ -442,7 +442,7 @@ export async function getRow<T = any>(sheet: string, id: string): Promise<T | nu
   const cached = getCached<T>(cacheKey)
   if (cached) return cached
 
-  const db = getDb()
+  const db = await getDb()
   if (!db) return null
 
   try {
@@ -463,7 +463,7 @@ export async function createRow<T = any>(sheet: string, data: SheetRow): Promise
   sanitized.updatedAt = new Date().toISOString()
   if (sanitized.deleted === undefined) sanitized.deleted = false
 
-  const db = getDb()
+  const db = await getDb()
   if (!db) throw new Error(getInitError() || 'Firebase not initialized')
 
   await db.collection(sheet).doc(String(sanitized.id)).set(sanitized)
@@ -477,7 +477,7 @@ export async function updateRow<T = any>(sheet: string, id: string, data: SheetR
   const sanitized = sanitizeRowData(data)
   sanitized.updatedAt = new Date().toISOString()
 
-  const db = getDb()
+  const db = await getDb()
   if (!db) throw new Error(getInitError() || 'Firebase not initialized')
 
   // Merge with existing doc so partial updates don't wipe other fields.
@@ -494,7 +494,7 @@ export async function updateRow<T = any>(sheet: string, id: string, data: SheetR
 // SOFT-DELETE ONLY
 export async function deleteRow(sheet: string, id: string): Promise<boolean> {
   trackDeleted(sheet, id)
-  const db = getDb()
+  const db = await getDb()
   if (!db) throw new Error(getInitError() || 'Firebase not initialized')
 
   await db.collection(sheet).doc(String(id)).set({ deleted: true, updatedAt: new Date().toISOString() }, { merge: true })
@@ -505,7 +505,7 @@ export async function deleteRow(sheet: string, id: string): Promise<boolean> {
 }
 
 export async function restoreRow(sheet: string, id: string): Promise<boolean> {
-  const db = getDb()
+  const db = await getDb()
   if (!db) throw new Error(getInitError() || 'Firebase not initialized')
 
   await db.collection(sheet).doc(String(id)).set({ deleted: false, updatedAt: new Date().toISOString() }, { merge: true })
@@ -519,7 +519,7 @@ export async function restoreRow(sheet: string, id: string): Promise<boolean> {
 export async function bulkCreate(sheet: string, data: SheetRow[]): Promise<number> {
   if (data.length === 0) return 0
   const sanitized = data.map(sanitizeRowData)
-  const db = getDb()
+  const db = await getDb()
   if (!db) throw new Error(getInitError() || 'Firebase not initialized')
 
   // Firestore batches are limited to 500 ops. Chunk to be safe.
@@ -557,7 +557,7 @@ export async function replaceAll(_sheet: string, _data: SheetRow[]): Promise<num
 export async function bulkUpdate(sheet: string, updates: { id: string; data: SheetRow }[]): Promise<number> {
   if (updates.length === 0) return 0
   const sanitized = updates.map((u) => ({ id: u.id, data: sanitizeRowData(u.data) }))
-  const db = getDb()
+  const db = await getDb()
   if (!db) throw new Error(getInitError() || 'Firebase not initialized')
 
   const chunks: { id: string; data: SheetRow }[][] = []
@@ -591,7 +591,7 @@ export async function getShop(): Promise<any | null> {
   const cached = getCached<any>(cacheKey)
   if (cached !== null) return cached
 
-  const db = getDb()
+  const db = await getDb()
   if (!db) return null
 
   try {
@@ -612,7 +612,7 @@ export async function saveShop(data: SheetRow): Promise<any> {
   if (!sanitized.createdAt) sanitized.createdAt = new Date().toISOString()
   if (sanitized.deleted === undefined) sanitized.deleted = false
 
-  const db = getDb()
+  const db = await getDb()
   if (!db) throw new Error(getInitError() || 'Firebase not initialized')
 
   await db.collection('Shop').doc(SHOP_DOC_ID).set(sanitized, { merge: true })
@@ -944,7 +944,7 @@ export async function createInvoiceFull(data: {
   payment?: any
 }): Promise<any> {
   const sanitized = sanitizeRowData(data as any)
-  const db = getDb()
+  const db = await getDb()
   if (!db) throw new Error(getInitError() || 'Firebase not initialized')
 
   // Generate invoice number if not provided
@@ -1049,7 +1049,7 @@ export async function createInvoiceFull(data: {
 
 export async function createQuotationFull(data: any): Promise<any> {
   const sanitized = sanitizeRowData(data)
-  const db = getDb()
+  const db = await getDb()
   if (!db) throw new Error(getInitError() || 'Firebase not initialized')
 
   let quotationNumber = sanitized.number
@@ -1113,7 +1113,7 @@ export async function completeJobFull(data: {
   payment?: any
 }): Promise<any> {
   const sanitized = sanitizeRowData(data as any)
-  const db = getDb()
+  const db = await getDb()
   if (!db) throw new Error(getInitError() || 'Firebase not initialized')
 
   const jobId = String(sanitized.id)

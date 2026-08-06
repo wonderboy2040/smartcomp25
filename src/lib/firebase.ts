@@ -26,8 +26,30 @@
  */
 
 import { existsSync, readFileSync } from 'fs'
-import { cert, getApps, initializeApp, type App, type ServiceAccount } from 'firebase-admin/app'
-import { getFirestore, type Firestore } from 'firebase-admin/firestore'
+// LAZY IMPORTS — firebase-admin is loaded only when getDb() is first called.
+// This keeps cold start fast (Render health check passes) and avoids loading
+// ~30MB of firebase-admin + grpc into memory until the first /api/* request
+// that actually needs Firestore.
+type App = import('firebase-admin/app').App
+type ServiceAccount = import('firebase-admin/app').ServiceAccount
+type Firestore = import('firebase-admin/firestore').Firestore
+
+let _firebaseAdminApp: typeof import('firebase-admin/app') | null = null
+let _firebaseAdminFirestore: typeof import('firebase-admin/firestore') | null = null
+
+async function loadFirebaseAdminApp() {
+  if (!_firebaseAdminApp) {
+    _firebaseAdminApp = await import('firebase-admin/app')
+  }
+  return _firebaseAdminApp
+}
+
+async function loadFirebaseAdminFirestore() {
+  if (!_firebaseAdminFirestore) {
+    _firebaseAdminFirestore = await import('firebase-admin/firestore')
+  }
+  return _firebaseAdminFirestore
+}
 
 interface RuntimeFirebaseConfig {
   projectId?: string
@@ -122,35 +144,52 @@ function buildServiceAccount(cfg: RuntimeFirebaseConfig): ServiceAccount | null 
 }
 
 /**
- * Lazy singleton initializer. Returns the Firestore instance, or null if the
- * app is not configured yet (e.g. desktop mode before the user has pasted
- * their service account).
+ * Sync check — returns true if Firebase env vars are present. Does NOT load
+ * the firebase-admin module. Use this in /api/health and other lightweight
+ * endpoints to avoid pulling firebase-admin into the route chunk.
+ *
+ * For the actual Firestore instance, use getDb() (async).
  */
-export function getDb(): Firestore | null {
+export function isFirebaseConfiguredSync(): boolean {
+  if (process.env.FIREBASE_SERVICE_ACCOUNT_BASE64) return true
+  if (process.env.FIREBASE_PROJECT_ID && process.env.FIREBASE_CLIENT_EMAIL && process.env.FIREBASE_PRIVATE_KEY) return true
+  const cfg = readConfig()
+  return !!(cfg.serviceAccount || (cfg.projectId && cfg.clientEmail && cfg.privateKey))
+}
+
+/**
+ * Async lazy initializer. Loads firebase-admin on first call, then caches.
+ * Returns the Firestore instance, or null if not configured / failed.
+ *
+ * IMPORTANT: This is async because it dynamically imports firebase-admin.
+ * Callers must `await getDb()`. The previous sync version was incompatible
+ * with lazy loading — it would have forced firebase-admin into every route
+ * chunk that imported this module, slowing cold starts.
+ */
+export async function getDb(): Promise<Firestore | null> {
   const now = Date.now()
   if (cachedDb && now - loadedAt < TTL) return cachedDb
 
   const cfg = readConfig()
   const sa = buildServiceAccount(cfg)
   if (!sa) {
-    // Not configured — this is fine in desktop mode before setup. Caller
-    // (sheets-client) treats null as "not configured" and returns [] / null.
     cachedApp = null
     cachedDb = null
     return null
   }
 
   try {
-    // Reuse existing app if already initialized (firebase-admin throws if
-    // you call initializeApp() twice with the same name).
+    const adminApp = await loadFirebaseAdminApp()
+    const adminFirestore = await loadFirebaseAdminFirestore()
+
     const appName = 'smartcomp'
     try {
-      cachedApp = getApps().find((a) => a.name === appName) || initializeApp({ credential: cert(sa) }, appName)
+      const existingApps = adminApp.getApps()
+      cachedApp = existingApps.find((a) => a.name === appName) || adminApp.initializeApp({ credential: adminApp.cert(sa as any) }, appName)
     } catch {
-      // getApps() can race in dev hot-reload — fall back to default app
-      cachedApp = getApps()[0] || initializeApp({ credential: cert(sa) })
+      cachedApp = adminApp.getApps()[0] || adminApp.initializeApp({ credential: adminApp.cert(sa as any) })
     }
-    cachedDb = getFirestore(cachedApp)
+    cachedDb = adminFirestore.getFirestore(cachedApp as any)
     initError = null
     loadedAt = now
     return cachedDb
@@ -167,8 +206,7 @@ export function getInitError(): string | null {
 }
 
 export function isFirebaseConfigured(): boolean {
-  const cfg = readConfig()
-  return !!(cfg.serviceAccount || (cfg.projectId && cfg.clientEmail && cfg.privateKey))
+  return isFirebaseConfiguredSync()
 }
 
 /**
@@ -178,7 +216,7 @@ export function isFirebaseConfigured(): boolean {
  * check (which has a 60s timeout) and mark the service unhealthy.
  */
 export async function pingFirestore(): Promise<{ ok: boolean; message?: string; projectId?: string }> {
-  const db = getDb()
+  const db = await getDb()
   if (!db) {
     return { ok: false, message: initError || 'Firebase not configured' }
   }
