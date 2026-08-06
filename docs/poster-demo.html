@@ -1,0 +1,178 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Poster Maker — ChatGPT Pro Template Demo</title>
+<style>
+  body { margin: 0; background: #eef2f7; font-family: 'Segoe UI', system-ui, sans-serif; padding: 24px; }
+  .wrap { max-width: 520px; margin: 0 auto; }
+  h1 { font-size: 16px; color: #1e293b; margin: 0 0 4px; }
+  p.sub { font-size: 12px; color: #64748b; margin: 0 0 16px; }
+  .poster { width: 100%; aspect-ratio: 719/1160; background: linear-gradient(180deg, #f8fafc 0%, #eef2ff 55%, #e0e7ff 100%); position: relative; overflow: hidden; border-radius: 12px; box-shadow: 0 20px 40px rgba(0,0,0,0.18); }
+  .header { background: #0f172a; padding: 16px 22px; display: flex; justify-content: space-between; align-items: center; }
+  .shopname { color: #fff; font-weight: 800; font-size: 17px; letter-spacing: .5px; }
+  .tagline { color: #fbbf24; font-size: 9.5px; font-weight: 600; margin-top: 2px; }
+  .loc { color: #ffffffcc; font-size: 8.5px; font-weight: 700; margin-top: 5px; }
+  .loc b { color: #fbbf24; }
+  .trust { display: flex; gap: 8px; }
+  .trust div { text-align: center; }
+  .trust svg { width: 15px; height: 15px; color: #f97316; }
+  .trust span { font-size: 6px; color: #94a3b8; font-weight: 600; display: block; }
+  .title-area { padding: 15px 22px 8px; }
+  .pname { font-size: 27px; font-weight: 900; color: #f97316; line-height: 1.1; }
+  .pmodel { font-size: 10px; color: #64748b; margin-top: 3px; }
+  .headline { font-size: 16px; font-weight: 800; color: #1e293b; margin-top: 7px; letter-spacing: .3px; }
+  .subheadline { font-size: 12px; color: #ef4444; font-weight: 700; margin-top: 2px; }
+  .badges { display: flex; gap: 5px; margin-top: 9px; flex-wrap: wrap; }
+  .badge { font-size: 7.5px; font-weight: 800; letter-spacing: .3px; padding: 3px 9px; border-radius: 20px; }
+  .badge1 { background: #f97316; color: #fff; }
+  .badge2 { background: #f9731618; color: #f97316; border: 1px solid #f9731645; }
+  .hero { display: flex; justify-content: center; align-items: center; padding: 6px 22px; height: 235px; }
+  .hero img, .hero svg { max-height: 225px; max-width: 85%; }
+  .specs { padding: 0 22px; display: grid; grid-template-columns: 1fr 1fr; gap: 7px 14px; }
+  .spec { display: flex; align-items: center; gap: 7px; background: #f9731610; padding: 6px 9px; border-radius: 8px; border: 1px solid #f9731615; }
+  .spec-ic { width: 28px; height: 28px; border-radius: 8px; background: #f9731620; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+  .spec-ic svg { width: 14px; height: 14px; color: #f97316; }
+  .spec-l { font-size: 10px; font-weight: 700; color: #1e293b; }
+  .spec-d { font-size: 8px; color: #64748b; }
+  .pricebar { margin: 12px 22px; padding: 11px 16px; border-radius: 10px; background: linear-gradient(135deg, #ef444425, #f9731620); border: 1.5px solid #f9731640; display: flex; justify-content: space-between; align-items: center; box-shadow: 0 4px 12px #f9731615; }
+  .offer { font-size: 11px; font-weight: 700; color: #1e293b; }
+  .mrp { font-size: 12px; font-weight: 700; color: #64748b; text-decoration: line-through; }
+  .price { font-size: 24px; font-weight: 900; color: #ef4444; text-shadow: 0 2px 4px #f9731630; }
+  .nett { font-size: 8px; font-weight: 900; background: #dc2626; color: #fff; padding: 2px 5px; border-radius: 4px; }
+  .footer { position: absolute; bottom: 0; left: 0; right: 0; background: linear-gradient(180deg, #0f172a 0%, #000 100%); padding: 15px 22px; display: flex; justify-content: space-between; align-items: center; }
+  .cta { display: inline-block; padding: 9px 22px; border-radius: 8px; background: #ef4444; color: #fff; font-size: 13px; font-weight: 900; box-shadow: 0 4px 12px #ef444440; letter-spacing: .5px; }
+  .fmeta { margin-top: 9px; }
+  .fmeta div { font-size: 10px; color: #fff; font-weight: 700; }
+  .fmeta div span { color: #e2e8f0; font-weight: 500; font-size: 9px; }
+  .chips { display: flex; gap: 5px; justify-content: flex-end; flex-wrap: wrap; max-width: 160px; }
+  .chip { font-size: 6.5px; color: #ffffffcc; padding: 3px 7px; border: 1px solid #ffffff30; border-radius: 4px; font-weight: 600; }
+  .fast { font-size: 7.5px; color: #fbbf24; font-weight: 800; margin-top: 5px; letter-spacing: .5px; text-align: right; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>🎨 Poster Maker — "ChatGPT Pro" Template</h1>
+  <p class="sub">Ye exactly waise posters ab site me <b>Poster Maker</b> tab se banege — AI product image (free) + perfect text. Text kabhi garbled nahi hoga kyunki browser render karta hai. Is demo me AI ne laptop ki vector art banayi (free providers busy the).</p>
+
+  <div class="poster">
+    <div class="header">
+      <div>
+        <div class="shopname">SMART COMPUTERS</div>
+        <div class="tagline">YOUR TRUSTED TECH PARTNER</div>
+        <div class="loc">📍 GYADGIR &nbsp; <b>📞 7019771869</b></div>
+      </div>
+      <div class="trust">
+        <div><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg><span>TRUSTED</span></div>
+        <div><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/></svg><span>QUALITY</span></div>
+        <div><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg><span>EXPERT</span></div>
+      </div>
+    </div>
+
+    <div class="title-area">
+      <div class="pname">ASUS VIVOBOOK 16</div>
+      <div class="pmodel">X1504VA-BQ224WS</div>
+      <div class="headline">POWERFUL STYLISH PRODUCTIVE</div>
+      <div class="subheadline">STYLE THAT STANDS OUT</div>
+      <div class="badges">
+        <span class="badge badge1">1 YEAR WARRANTY</span>
+        <span class="badge badge2">MICROSOFT OFFICE</span>
+        <span class="badge badge2">FREE BACKPACK</span>
+      </div>
+    </div>
+
+    <div class="hero">
+      <?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <defs>
+    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#1e1b4b"/>
+      <stop offset="45%" stop-color="#312e81"/>
+      <stop offset="100%" stop-color="#0f172a"/>
+    </linearGradient>
+    <linearGradient id="screenGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#6366f1"/>
+      <stop offset="50%" stop-color="#8b5cf6"/>
+      <stop offset="100%" stop-color="#3b82f6"/>
+    </linearGradient>
+    <radialGradient id="glow" cx="50%" cy="42%" r="60%">
+      <stop offset="0%" stop-color="rgba(129,140,248,0.28)"/>
+      <stop offset="100%" stop-color="rgba(129,140,248,0)"/>
+    </radialGradient>
+    <filter id="blur" x="-50%" y="-50%" width="200%" height="200%">
+      <feGaussianBlur stdDeviation="20"/>
+    </filter>
+  </defs>
+  <rect width="1024" height="1024" fill="url(#bg)"/>
+  <rect width="1024" height="1024" fill="url(#glow)"/>
+  <!-- circuit traces -->
+  <g stroke="rgba(148,163,184,0.16)" stroke-width="2" fill="none">
+    <path d="M 61.44 122.88 H 184.32 V 225.28"/>
+    <path d="M 962.56 143.36 H 839.68 V 266.24"/>
+    <path d="M 81.92 880.64 H 204.8 V 778.24"/>
+    <path d="M 942.08 901.12 H 819.2 V 798.72"/>
+  </g>
+  <g fill="#38bdf8" opacity="0.5">
+    <circle cx="184.32" cy="225.28" r="3"/>
+    <circle cx="839.68" cy="266.24" r="3"/>
+    <circle cx="204.8" cy="778.24" r="3"/>
+    <circle cx="819.2" cy="798.72" r="3"/>
+  </g>
+  
+      <g transform="translate(512, 573.44)">
+        <!-- screen glow -->
+        <ellipse cx="0" cy="-10" rx="327.68" ry="163.84" fill="rgba(99,102,241,0.35)" filter="url(#blur)"/>
+        <!-- screen -->
+        <rect x="-307.2" y="-245.76" width="614.4" height="368.64" rx="18.432" fill="#0b1220" stroke="#334155" stroke-width="3"/>
+        <rect x="-276.48" y="-215.04" width="552.96" height="307.2" rx="12.288" fill="url(#screenGrad)"/>
+        <!-- keyboard base -->
+        <path d="M -368.64 61.44 L 368.64 61.44 L 307.2 163.84 L -307.2 163.84 Z" fill="#1e293b" stroke="#334155" stroke-width="3"/>
+        <rect x="-204.8" y="87.04" width="409.6" height="8.192" rx="2" fill="#475569"/>
+        <rect x="-266.24" y="112.64" width="61.44" height="18.432" rx="1.5" fill="#f59e0b"/>
+        <rect x="-143.36" y="112.64" width="286.72" height="18.432" rx="1.5" fill="#475569"/>
+      </g>
+</svg>
+    </div>
+
+    <div class="specs">
+      <div class="spec"><div class="spec-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="4" y="4" width="16" height="16" rx="2"/><rect x="9" y="9" width="6" height="6"/></svg></div><div><div class="spec-l">Intel Core i5 13th Gen</div><div class="spec-d">13420H</div></div></div>
+      <div class="spec"><div class="spec-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="6" width="20" height="12" rx="2"/></svg></div><div><div class="spec-l">8GB + 8GB (16GB) DDR4</div><div class="spec-d">Dual Channel</div></div></div>
+      <div class="spec"><div class="spec-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 12H2M12 2v20M4 4l16 16M20 4L4 20"/></svg></div><div><div class="spec-l">512GB PCIe G4 SSD</div><div class="spec-d">Blazing Fast</div></div></div>
+      <div class="spec"><div class="spec-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/></svg></div><div><div class="spec-l">16" WUXGA Display</div><div class="spec-d">300 nits, Anti-Glare</div></div></div>
+      <div class="spec"><div class="spec-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="6" width="20" height="12" rx="2"/><path d="M6 12h4M14 12h4"/></svg></div><div><div class="spec-l">Windows 11 + Office</div><div class="spec-d">Home 2024</div></div></div>
+      <div class="spec"><div class="spec-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg></div><div><div class="spec-l">1 Year Warranty</div><div class="spec-d">On-site Support</div></div></div>
+    </div>
+
+    <div class="pricebar">
+      <div class="offer">Biggest Deal of the Year</div>
+      <div style="display:flex;align-items:baseline;gap:7px;">
+        <span class="mrp">₹65,500</span>
+        <span class="price">₹49,990</span>
+        <span class="nett">NETT</span>
+      </div>
+    </div>
+
+    <div class="footer">
+      <div>
+        <span class="cta">BUY NOW!</span>
+        <div class="fmeta">
+          <div>📞 7019771869</div>
+          <div><span>📍 GYADGIR</span></div>
+        </div>
+      </div>
+      <div>
+        <div class="chips">
+          <span class="chip">ORIGINAL PRODUCTS</span>
+          <span class="chip">TRUSTED SERVICE</span>
+          <span class="chip">BEST PRICES</span>
+          <span class="chip">AFTER SALES SUPPORT</span>
+        </div>
+        <div class="fast">FAST • RELIABLE • AFFORDABLE</div>
+      </div>
+    </div>
+  </div>
+
+  <p class="sub" style="margin-top:14px;">⬆️ Ye preview <b>Poster Maker → ChatGPT Pro template</b> ka exact layout hai (AI product image + saare text browser me render hue). Jab free AI providers available honge to isi jagah real AI product photo aayegi (Pollinations 256px → upscale), warna ye smart vector art — dono case me poster hamesha banta hai. 🎉</p>
+</div>
+</body>
+</html>

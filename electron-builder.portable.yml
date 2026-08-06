@@ -1,0 +1,44 @@
+appId: com.smartcomputers.panel
+productName: Smart Computers
+directories:
+  output: dist
+  buildResources: build
+win:
+  target:
+    - target: dir
+      arch: [x64]
+  icon: electron/icon.ico
+  signAndEditExecutable: false
+  forceCodeSigning: false
+files:
+  - electron/main.js
+  - electron/preload.js
+  - electron/icon.ico
+  - package.json
+  - "!**/.env*"
+  - "!**/*.map"
+  - "!**/node_modules/*/{CHANGELOG.md,README.md,readme.md,README}"
+  - "!**/node_modules/*/{test,__tests__,tests,powered-test,example,examples}"
+  - "!**/node_modules/.cache"
+extraResources:
+  - from: .next/standalone
+    to: next-standalone
+    filter: ["**/*"]
+  - from: .next/static
+    to: next-standalone/.next/static
+    filter: ["**/*"]
+  - from: public
+    to: next-standalone/public
+    filter: ["**/*"]
+  - from: apps-script
+    to: next-standalone/apps-script
+    filter: ["**/*"]
+extraFiles:
+  - from: build/install-shortcuts.bat
+    to: install-shortcuts.bat
+  - from: build/uninstall-shortcuts.bat
+    to: uninstall-shortcuts.bat
+  - from: build/README-INSTALL.txt
+    to: README-INSTALL.txt
+compression: maximum
+publish: null

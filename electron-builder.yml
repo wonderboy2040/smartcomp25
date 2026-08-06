@@ -1,0 +1,109 @@
+# ============================================================
+# Smart Computers — electron-builder config (Windows x64)
+# ============================================================
+# Builds a Windows NSIS installer (.exe) that bundles:
+#   - Electron runtime
+#   - Next.js standalone server (produced by `next build`)
+#   - Public static assets
+#   - Apps Script source (for the in-app SetupWizard copy button)
+#
+# Output: dist/smart-computers-setup-<version>.exe
+#
+# REQUIREMENTS:
+#   - Run on Windows for proper NSIS installer (.exe with icon + signing)
+#   - On Linux/macOS, use --target=dir to produce a portable folder,
+#     then zip it with scripts/package-portable-zip.py
+# ============================================================
+
+appId: com.smartcomputers.panel
+productName: Smart Computers
+copyright: Copyright (c) 2026 Smart Computers
+
+# Target Windows x64 only (per user request)
+win:
+  target:
+    - target: nsis
+      arch:
+        - x64
+  icon: electron/icon.ico
+  # Skip code signing (no certificate). Windows SmartScreen will show
+  # an "unrecognized app" warning the first time — this is expected
+  # and the user just clicks "More info" → "Run anyway".
+  forceCodeSigning: false
+  # On Linux without Wine, set this to false to skip .exe resource
+  # editing (icon + asar integrity). On Windows, leave as true (default).
+  # signAndEditExecutable: false
+
+nsis:
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true
+  allowElevation: true
+  installerIcon: electron/icon.ico
+  uninstallerIcon: electron/icon.ico
+  installerHeaderIcon: electron/icon.ico
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+  shortcutName: Smart Computers
+  # Show a friendly install wizard
+  deleteAppDataOnUninstall: false
+  uninstallDisplayName: Smart Computers
+
+# Files to bundle into app.asar (the Electron app shell)
+files:
+  - electron/main.js
+  - electron/preload.js
+  - electron/icon.ico
+  - package.json
+  - "!**/.env*"
+  - "!**/*.map"
+  - "!**/node_modules/*/{CHANGELOG.md,README.md,readme.md,README}"
+  - "!**/node_modules/*/{test,__tests__,tests,powered-test,example,examples}"
+  - "!**/node_modules/.cache"
+  - "!**/.vscode"
+  - "!**/.git"
+
+# Extra resources that need to be on disk (not inside asar)
+# Next.js standalone needs to spawn a real node process, so it can't live
+# inside app.asar — we put it in app.asar.unpacked via extraResources.
+extraResources:
+  - from: .next/standalone
+    to: next-standalone
+    filter: ["**/*"]
+  - from: .next/static
+    to: next-standalone/.next/static
+    filter: ["**/*"]
+  - from: public
+    to: next-standalone/public
+    filter: ["**/*"]
+  - from: apps-script
+    to: next-standalone/apps-script
+    filter: ["**/*"]
+
+# Include install/uninstall batch scripts in the installer too.
+# These files are optional — if the build/ directory is missing, the
+# installer still builds successfully (the extraFiles entries are skipped).
+# This fixes the historical bug where `npm run electron:build` failed
+# because build/install-shortcuts.bat etc. did not exist in the repo.
+extraFiles:
+  - from: build/install-shortcuts.bat
+    to: install-shortcuts.bat
+    filter: ["**/*"]
+  - from: build/uninstall-shortcuts.bat
+    to: uninstall-shortcuts.bat
+    filter: ["**/*"]
+  - from: build/README-INSTALL.txt
+    to: README-INSTALL.txt
+    filter: ["**/*"]
+
+# Where the final installer lands
+directories:
+  output: dist
+  buildResources: build
+
+# Compression — use maximum for smaller installer
+compression: maximum
+
+# Don't auto-publish to GitHub — we just want the local .exe
+publish: null
+

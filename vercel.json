@@ -1,0 +1,20 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "framework": "nextjs",
+  "buildCommand": "next build",
+  "installCommand": "bun install",
+  "regions": ["bom1"],
+  "env": {
+    "NEXT_TELEMETRY_DISABLED": "1"
+  },
+  "crons": [
+    {
+      "path": "/api/cron/auto-enquiry",
+      "schedule": "0 10 1,15 * *"
+    },
+    {
+      "path": "/api/cron/amc",
+      "schedule": "0 10 * * *"
+    }
+  ]
+}

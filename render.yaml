@@ -1,0 +1,108 @@
+# Render deployment config - Smart Computers Panel v10.1 (Firebase Edition)
+#
+# WHAT CHANGED: Backend moved from Google Sheets (slow, 6-8s cold starts) to
+# Firebase Firestore (in-process SDK, <100ms reads, free tier 50K reads/day).
+# The frontend, all /api routes, the PIN gate, and the WhatsApp/AI features
+# are UNCHANGED — only the data layer was swapped.
+#
+# DATA PROTECTION (built-in, always on):
+#   - DELETE = soft-delete (docs marked deleted=true, never removed)
+#   - replaceAll = permanently blocked
+#
+# PIN PROTECTION (optional, set APP_PIN to enable):
+#   - 4-digit numeric PIN required to access the panel
+#   - Set APP_PIN in Render dashboard (DO NOT commit it)
+
+services:
+  - type: web
+    name: smart-computers-panel
+    runtime: node
+    plan: free
+    region: singapore
+    branch: main
+    rootDir: .
+    # IMPORTANT: Use npm with --include=dev for tailwindcss build deps
+    buildCommand: npm install --include=dev && npm run build
+    # Use the standalone server directly — `next start` does NOT work with
+    # output: 'standalone' (Next.js 15 logs a warning and routes can misbehave).
+    # The standalone bundle includes only the production deps needed to run,
+    # so it boots faster and uses less memory than `next start`.
+    startCommand: node .next/standalone/server.js
+    # /api/health is public and returns live diagnostics — better health check
+    # than '/' which requires PIN cookie and would always 302 to /login when
+    # APP_PIN is set, causing Render to mark the service as unhealthy.
+    healthCheckPath: /api/health
+    autoDeploy: true
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: NEXT_TELEMETRY_DISABLED
+        value: "1"
+      - key: NPM_CONFIG_PRODUCTION
+        value: "false"
+      - key: PORT
+        value: "10000"
+      # ====================================================================
+      # BACKEND — Firebase Firestore (RECOMMENDED, ultra fast, free tier)
+      # ====================================================================
+      # Option A (preferred): paste the entire service-account JSON as base64.
+      #   Generate on your laptop:
+      #     base64 -w0 path/to/service-account.json
+      #   Then paste the output as the value of FIREBASE_SERVICE_ACCOUNT_BASE64.
+      #   This is the easiest path on Render — one env var, no escaping issues.
+      - key: FIREBASE_SERVICE_ACCOUNT_BASE64
+        sync: false
+      # Option B (alternative): set these three separately. Use this if your
+      # Render plan restricts the size of a single env var or you prefer
+      # individual fields. NOTE: FIREBASE_PRIVATE_KEY must contain literal
+      # "\n" escapes between lines (Render preserves them as-is).
+      - key: FIREBASE_PROJECT_ID
+        sync: false
+      - key: FIREBASE_CLIENT_EMAIL
+        sync: false
+      - key: FIREBASE_PRIVATE_KEY
+        sync: false
+      # ====================================================================
+      # AUTH — 4-digit PIN to lock the panel (optional but recommended)
+      # ====================================================================
+      - key: APP_PIN
+        sync: false
+      # ====================================================================
+      # OPTIONAL SECRETS — only set the ones you actually use
+      # ====================================================================
+      - key: CRON_SECRET
+        sync: false
+      - key: RAZORPAY_WEBHOOK_SECRET
+        sync: false
+      - key: WA_APP_SECRET
+        sync: false
+      # OPTIONAL: WhatsApp Cloud API — enables auto-send + auto-capture replies.
+      # If these are NOT set, the app falls back to wa.me manual mode.
+      - key: WA_TOKEN
+        sync: false
+      - key: WA_PHONE_NUMBER_ID
+        sync: false
+      - key: WA_BUSINESS_NUMBER
+        sync: false
+      - key: WA_VERIFY_TOKEN
+        sync: false
+      - key: WA_TEMPLATE_NAME
+        value: "rate_enquiry"
+      # OPTIONAL: public base URL of the deployed app (used in track URLs etc.)
+      - key: NEXT_PUBLIC_BASE_URL
+        sync: false
+      # ====================================================================
+      # LEGACY (only if you haven't migrated to Firebase yet)
+      # ====================================================================
+      # If FIREBASE_* is NOT set, the app falls back to APPS_SCRIPT_URL.
+      # Leave this unset once you've migrated to Firebase.
+      - key: APPS_SCRIPT_URL
+        sync: false
+
+# Note: No database service needed on Render — Firestore is hosted by Google
+# and accessed via the firebase-admin SDK. The free Spark tier gives you
+# 50,000 reads/day, 20,000 writes/day, 20,000 deletes/day, 1 GiB storage.
+# That's plenty for a small shop — 200 invoices refreshed 100x/day = 20K reads.
+#
+# Node version is auto-detected from .nvmrc file (set to 20.11.0)
+# and package.json engines field (node: 20.x)

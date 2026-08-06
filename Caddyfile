@@ -1,0 +1,18 @@
+# SmartComp Caddy reverse proxy config.
+#
+# SECURITY: the previous version allowed any client to proxy to ANY
+# localhost port via the `?XTransformPort=<port>` query parameter — a
+# classic SSRF that exposed internal services (Postgres 5432, Redis 6379,
+# admin APIs, etc.) to anyone who could reach Caddy.
+#
+# That block has been removed. Caddy now only proxies to the Next.js
+# standalone server on :3000, which is the only legitimate backend.
+
+:81 {
+	reverse_proxy localhost:3000 {
+		header_up Host {host}
+		header_up X-Forwarded-For {remote_host}
+		header_up X-Forwarded-Proto {scheme}
+		header_up X-Real-IP {remote_host}
+	}
+}
