@@ -1,7 +1,7 @@
 {
   "name": "smartcomp",
   "private": true,
-  "version": "10.1.0-firebase",
+  "version": "10.1.1-firebase",
   "description": "SmartComp — Sales & Service Panel v10.1 Firebase Edition. Now backed by Firebase Firestore (ultra fast, free tier) instead of Google Sheets. Same UI, same features, ~50x faster reads.",
   "keywords": [
     "shop management",

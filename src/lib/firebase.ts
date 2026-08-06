@@ -171,27 +171,40 @@ export function isFirebaseConfigured(): boolean {
   return !!(cfg.serviceAccount || (cfg.projectId && cfg.clientEmail && cfg.privateKey))
 }
 
-/** Test reachability — used by /api/health and /api/config. */
+/**
+ * Test reachability — used by /api/health?deep=1 and /api/config.
+ *
+ * Has a 5s hard timeout so a hung gRPC call can't block Render's health
+ * check (which has a 60s timeout) and mark the service unhealthy.
+ */
 export async function pingFirestore(): Promise<{ ok: boolean; message?: string; projectId?: string }> {
   const db = getDb()
   if (!db) {
     return { ok: false, message: initError || 'Firebase not configured' }
   }
+  const projId =
+    (cachedApp?.options?.projectId as string) ||
+    process.env.FIREBASE_PROJECT_ID ||
+    undefined
   try {
-    // Read a tiny doc from a _meta collection — costs 1 read in the free tier.
-    const ref = db.collection('_meta').doc('ping')
-    const snap = await ref.get()
-    if (!snap.exists) {
-      // First-time setup: write a ping doc so future reads succeed.
-      await ref.set({ ok: true, createdAt: Date.now() }, { merge: true })
+    // Race the Firestore read against a 5s timeout — gRPC's default timeout
+    // is minutes, which would block Render's health check.
+    const readPromise = (async () => {
+      const ref = db.collection('_meta').doc('ping')
+      const snap = await ref.get()
+      if (!snap.exists) {
+        await ref.set({ ok: true, createdAt: Date.now() }, { merge: true })
+      }
+      return true
+    })()
+    const timeoutPromise = new Promise<false>((resolve) => setTimeout(() => resolve(false), 5000))
+    const result = await Promise.race([readPromise, timeoutPromise])
+    if (result === false) {
+      return { ok: false, message: 'Firestore ping timed out after 5s — check network egress or Firestore rules', projectId: projId }
     }
-    const projId =
-      (cachedApp?.options?.projectId as string) ||
-      process.env.FIREBASE_PROJECT_ID ||
-      undefined
     return { ok: true, projectId: projId }
   } catch (e: any) {
-    return { ok: false, message: e?.message || 'Firestore ping failed' }
+    return { ok: false, message: e?.message || 'Firestore ping failed', projectId: projId }
   }
 }
 
