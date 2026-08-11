@@ -42,6 +42,15 @@ services:
         value: "false"
       - key: PORT
         value: "10000"
+      # CRITICAL FIX for 502 Bad Gateway on Render:
+      # Next.js standalone server.js binds to process.env.HOSTNAME.
+      # Render automatically sets HOSTNAME to the container's internal
+      # hostname (e.g. abc123.render.internal), which makes the server
+      # bind to the wrong interface — Render's proxy then can't reach it
+      # and returns 502 on every path (including /api/health).
+      # Forcing HOSTNAME=0.0.0.0 makes the server listen on all interfaces.
+      - key: HOSTNAME
+        value: "0.0.0.0"
       # ====================================================================
       # BACKEND — Firebase Firestore (RECOMMENDED, ultra fast, free tier)
       # ====================================================================
