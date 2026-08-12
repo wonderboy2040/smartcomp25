@@ -70,9 +70,8 @@ const nextConfig: NextConfig = {
   // server crashes on Render with HTTP 502 because firebase-admin's internal
   // files (protobuf JSON descriptors, grpc fallback, etc.) are missing.
   outputFileTracingIncludes: {
-    '/': ['./node_modules/firebase-admin/**/*.js', './node_modules/firebase-admin/**/*.json', './node_modules/@grpc/**/*', './node_modules/@firebase/**/*.js', './node_modules/google-gax/**/*.js', './node_modules/google-gax/**/*.json', './node_modules/protoc-gen-grpc/**/*.js', './apps-script/code.gs'],
-    '/api/**': ['./node_modules/firebase-admin/**/*.js', './node_modules/firebase-admin/**/*.json', './node_modules/@grpc/**/*', './node_modules/@firebase/**/*.js', './node_modules/google-gax/**/*.js', './node_modules/google-gax/**/*.json', './apps-script/code.gs'],
-    '/api/apps-script-code': ['./apps-script/code.gs'],
+    '/': ['./node_modules/firebase-admin/**/*.js', './node_modules/firebase-admin/**/*.json', './node_modules/@grpc/**/*', './node_modules/@firebase/**/*.js', './node_modules/google-gax/**/*.js', './node_modules/google-gax/**/*.json', './node_modules/protoc-gen-grpc/**/*.js'],
+    '/api/**': ['./node_modules/firebase-admin/**/*.js', './node_modules/firebase-admin/**/*.json', './node_modules/@grpc/**/*', './node_modules/@firebase/**/*.js', './node_modules/google-gax/**/*.js', './node_modules/google-gax/**/*.json', './node_modules/protoc-gen-grpc/**/*.js'],
   },
 
   async headers() {
@@ -86,8 +85,7 @@ const nextConfig: NextConfig = {
       { key: 'X-XSS-Protection', value: '1; mode=block' },
       // Content-Security-Policy: restricts what origins can serve scripts,
       // styles, images, etc. for this app. Allows self + inline (Next needs
-      // inline for hydration scripts) + Google Scripts (legacy Apps Script
-      // backend, kept for backward compat) + Firestore (server-side only, but
+      // inline for hydration scripts) + Firestore (server-side only, but
       // listed for completeness if any client lib ever talks to it) + Meta
       // Graph API (WhatsApp Cloud) + Razorpay (payment gateway).
       //
@@ -103,7 +101,7 @@ const nextConfig: NextConfig = {
           "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
           "img-src 'self' data: blob: https:",
           "font-src 'self' data:",
-          "connect-src 'self' https://script.google.com https://*.googleusercontent.com https://firestore.googleapis.com https://*.firebaseio.com https://graph.facebook.com https://api.razorpay.com https://*.razorpay.com",
+          "connect-src 'self' https://firestore.googleapis.com https://*.firebaseio.com https://graph.facebook.com https://api.razorpay.com https://*.razorpay.com",
           "frame-ancestors 'self'",
           "form-action 'self' https://api.razorpay.com",
           "base-uri 'self'",

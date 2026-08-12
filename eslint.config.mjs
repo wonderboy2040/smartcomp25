@@ -60,6 +60,11 @@ const eslintConfig = [
       'no-empty': ['warn', { allowEmptyCatch: true }],
       'no-unused-vars': 'off', // handled by @typescript-eslint version
       'no-undef': 'off',       // TS already checks this
+      // v12: react-hooks plugin isn't installed, but legacy code has
+      // eslint-disable-line react-hooks/exhaustive-deps directives. Without
+      // this stub, Next.js build fails with "Definition for rule not found".
+      'react-hooks/exhaustive-deps': 'off',
+      'react-hooks/rules-of-hooks': 'off',
       '@typescript-eslint/no-unused-vars': ['warn', { argsIgnorePattern: '^_', varsIgnorePattern: '^(_|ignored)' }],
       '@typescript-eslint/no-explicit-any': 'warn',
       '@typescript-eslint/ban-ts-comment': 'warn',

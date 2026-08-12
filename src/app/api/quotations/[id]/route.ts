@@ -35,7 +35,10 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
     const rawItems = Array.isArray(body.items)
       ? body.items
       : safeJsonParse<any[]>(existing.itemsJson, [])
+    // Spread first, coerce after — the old whitelist dropped description,
+    // specification, serial numbers and product keys on every edit.
     const newItems = rawItems.map((i: any) => ({
+      ...i,
       itemId: i.itemId,
       name: i.name,
       sku: i.sku || '',
@@ -46,22 +49,44 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
       gstApplicable: i.gstApplicable === true || i.gstApplicable === 'true',
       gstRate: Number(i.gstRate) || 0,
       costPrice: Number(i.costPrice) || 0,
+      serialNumbers: Array.isArray(i.serialNumbers) ? i.serialNumbers.filter(Boolean).map(String) : [],
+      productKeys: Array.isArray(i.productKeys) ? i.productKeys.filter(Boolean).map(String) : [],
     }))
 
     const computed = computeInvoice(newItems, {
       courierCharges: Number(body.courierCharges) || 0,
       otherCharges: Number(body.otherCharges) || 0,
       discount: Number(body.discount) || 0,
+      roundOff: body.roundOff === true,
     })
 
-    const updated = await updateRow('Quotations', id, {
-      customerId: String(body.customerId || existing.customerId || ''),
+    // Same customer-swap fix as the invoice route: the form sends only an id.
+    const oldCustomerId = String(existing.customerId || '')
+    const newCustomerId = String(body.customerId || oldCustomerId)
+    let customerFields = {
       customerName: String(body.customerName || existing.customerName || ''),
       customerPhone: String(body.customerPhone || existing.customerPhone || ''),
       customerGstin: String(body.customerGstin || existing.customerGstin || ''),
+    }
+    if (newCustomerId && newCustomerId !== oldCustomerId) {
+      const picked = await getRow<any>('Customers', newCustomerId).catch(() => null)
+      if (picked) {
+        customerFields = {
+          customerName: String(picked.name || ''),
+          customerPhone: String(picked.phone || ''),
+          customerGstin: String(picked.gstNumber || ''),
+        }
+      }
+    }
+
+    const updated = await updateRow('Quotations', id, {
+      customerId: newCustomerId,
+      ...customerFields,
       date: body.date || existing.date,
       validTill: body.validTill || existing.validTill,
-      itemsJson: JSON.stringify(newItems),
+      // Store the COMPUTED lines (amount / gstAmount / total per row) so an
+      // edited quotation carries the same shape a freshly created one does.
+      itemsJson: JSON.stringify(computed.items),
       subtotal: computed.subtotal,
       gstAmount: computed.gstAmount,
       courierCharges: computed.courierCharges,
@@ -94,11 +119,21 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       }
 
       const items = safeJsonParse<any[]>(q.itemsJson, []) as LineItem[]
-      const calc = computeInvoice(items, {
+      const charges = {
         courierCharges: Number(q.courierCharges) || 0,
         otherCharges: Number(q.otherCharges) || 0,
         discount: Number(q.discount) || 0,
-      })
+      }
+      // Carry the quotation's rounding into the invoice, otherwise the customer
+      // is billed a different total from the quote they accepted. There is no
+      // roundOff column, so infer it from the stored total (see DocForm).
+      const rawTotal = computeInvoice(items, charges).grandTotal
+      const quotedTotal = Number(q.grandTotal) || 0
+      const wasRounded =
+        quotedTotal > 0 &&
+        Math.abs(quotedTotal - Math.round(rawTotal)) < 0.005 &&
+        Math.abs(quotedTotal - rawTotal) > 0.005
+      const calc = computeInvoice(items, { ...charges, roundOff: wasRounded })
 
       // v11.2 ADVANCED CONVERT: optional payment at conversion + stock toggle
       const deductStock = body?.deductStock !== false

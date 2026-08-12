@@ -1,12 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { isConfigured, testConnection, listRows, getAllDataQuantum } from '@/lib/sheets-client'
 
-// Quantum Sync Endpoint - supports getAllData single-call (like index.html PWA)
-// and liveSync with hash, plus status check.
+// Quantum Sync Endpoint — Firebase Firestore only (v11.5).
 //
-// In Firebase mode, "liveSync" is a no-op (the cache + 5s quantum mem cache
-// already keep reads fresh). The endpoint still returns the same shape so
-// the PWA / Settings panel doesn't break.
+// The cache + 5s quantum mem cache in sheets-client already keep reads
+// fresh. This endpoint returns the same response shape as v10 so the PWA
+// / Settings panel doesn't break, but it no longer falls back to Apps
+// Script (that path has been removed entirely).
 
 export async function GET(req: NextRequest) {
   try {
@@ -20,7 +20,7 @@ export async function GET(req: NextRequest) {
         enabled: false,
         lastSync: null,
         lastSyncStatus: null,
-        lastSyncMessage: 'Not configured',
+        lastSyncMessage: 'Firebase not configured',
       })
     }
 
@@ -40,8 +40,9 @@ export async function GET(req: NextRequest) {
             },
             {
               headers: {
-                'Cache-Control': 'private, max-age=30, stale-while-revalidate=60',
+                'Cache-Control': 'private, max-age=5, stale-while-revalidate=30',
                 'X-Quantum': 'getAllData',
+                'X-Backend': 'firestore',
               },
             }
           )
@@ -85,7 +86,7 @@ export async function GET(req: NextRequest) {
         ? 'Firebase mode — Firestore is the source of truth. Cache + 5s quantum mem cache keep reads fresh.'
         : null,
       quantum: true,
-      version: '6.0',
+      version: '11.5',
     })
   } catch (e: any) {
     return NextResponse.json({ error: e?.message }, { status: 500 })
@@ -106,15 +107,14 @@ export async function POST(req: NextRequest) {
 
     const action = body.action || actionParam
 
-    // Quantum liveSync handling — in Firebase mode this is a no-op ack.
-    // (Firestore is the source of truth; the cache invalidation logic in
-    // sheets-client.ts already handles cross-device consistency via the
-    // 60s TTL + debounced background reconcile.)
+    // liveSync — in Firebase mode this is a no-op ack. Firestore is the
+    // source of truth; the cache invalidation logic in sheets-client.ts
+    // already handles cross-device consistency via the 60s TTL + debounced
+    // background reconcile.
     if (action === 'liveSync') {
       if (!isConfigured()) {
-        return NextResponse.json({ success: false, error: 'Not configured' }, { status: 400 })
+        return NextResponse.json({ success: false, error: 'Firebase not configured' }, { status: 400 })
       }
-
       return NextResponse.json({
         success: true,
         status: 'success',

@@ -1,6 +1,8 @@
 /**
  * Runtime config — single source of truth for backend credentials.
  *
+ * FIREBASE ONLY (v11.5 — Google Sheets / Apps Script removed).
+ *
  * Cloud deployments (Render / Vercel / Onrender) set everything as env vars.
  * The Electron desktop .exe instead writes a small JSON file to
  * %APPDATA%/smartcomp/config.json and points SMARTCOMP_CONFIG_PATH at it.
@@ -10,16 +12,18 @@
  * Env vars (when present) ALWAYS win — this preserves existing cloud
  * behaviour and lets the same code run on web + desktop unchanged.
  *
- * Backend mode:
- *   - Firebase (only supported): set FIREBASE_SERVICE_ACCOUNT_BASE64
+ * Backend:
+ *   - Firebase (the only backend): set FIREBASE_SERVICE_ACCOUNT_BASE64
  *     OR (FIREBASE_PROJECT_ID + FIREBASE_CLIENT_EMAIL + FIREBASE_PRIVATE_KEY).
+ *   - APP_PIN (optional): 4–8 digit numeric PIN that locks the panel
+ *     behind a login screen. The hash is stored in a cookie; the PIN
+ *     itself never leaves the server.
  */
 
 import { existsSync, readFileSync } from 'fs'
 
 interface RuntimeConfig {
   appPin?: string
-  // Firebase fields (desktop mode stores them in the same JSON file)
   firebaseServiceAccountBase64?: string
   firebaseProjectId?: string
   firebaseClientEmail?: string
@@ -60,6 +64,12 @@ function read(): RuntimeConfig {
   return cache
 }
 
+/** Kept for backward compat with src/proxy.ts and /api/config — always returns undefined now. */
+export function getAppsScriptUrl(): string | undefined {
+  return undefined
+}
+
+/** 4–8 digit PIN that gates the panel. Read from env or the desktop config file. */
 export function getAppPin(): string | undefined {
   if (process.env.APP_PIN) return process.env.APP_PIN
   return read().appPin
@@ -73,7 +83,7 @@ export function isFirebaseMode(): boolean {
   return !!(cfg.firebaseServiceAccountBase64 || (cfg.firebaseProjectId && cfg.firebaseClientEmail && cfg.firebasePrivateKey))
 }
 
-/** Returns true when Firebase backend is configured. */
+/** Returns true when ANY backend is configured. After v11.5 this is equivalent to isFirebaseMode(). */
 export function isBackendConfigured(): boolean {
   return isFirebaseMode()
 }

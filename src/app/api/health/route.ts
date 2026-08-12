@@ -12,6 +12,8 @@ import { NextResponse } from 'next/server'
  *
  * Default (no query param): responds instantly with env-var status.
  * Deep check (?deep=1): does an actual Firestore read (1-3s).
+ *
+ * v11.5: Google Sheets / Apps Script support removed. Backend is Firebase only.
  */
 export async function GET(req: Request) {
   // Read env vars DIRECTLY — no library imports. This keeps the route chunk
@@ -26,7 +28,6 @@ export async function GET(req: Request) {
   const firebaseEnvConfigured =
     hasFirebaseBase64 || (hasFirebaseProjectId && hasFirebaseClientEmail && hasFirebasePrivateKey)
   const backendConfigured = firebaseEnvConfigured
-  const firebaseMode = firebaseEnvConfigured
 
   const url = new URL(req.url)
   const deep = url.searchParams.get('deep') === '1'
@@ -39,7 +40,6 @@ export async function GET(req: Request) {
   // Deep check is opt-in — used for manual debugging, NOT for health checks
   if (deep && backendConfigured) {
     try {
-      // Dynamic import so firebase-admin doesn't load on the simple path
       const { pingFirestore } = await import('@/lib/firebase')
       const result = await pingFirestore()
       firebaseReachable = result.ok
@@ -56,7 +56,7 @@ export async function GET(req: Request) {
     hints.push(
       '🔴 No backend configured. Set FIREBASE_SERVICE_ACCOUNT_BASE64 on Render (see README → Firebase setup).'
     )
-  } else if (firebaseMode) {
+  } else {
     if (deep) {
       if (firebaseReachable === true) {
         hints.push('✅ Firestore reachable. Backend is fully operational.')
@@ -72,7 +72,7 @@ export async function GET(req: Request) {
   return NextResponse.json(
     {
       status: 'ok',
-      version: '10.1.2-firebase',
+      version: '11.5.0-firebase-only',
       codename: 'SmartComp Pro Firebase',
       timestamp: new Date().toISOString(),
       uptime: typeof process.uptime === 'function' ? process.uptime() : 0,

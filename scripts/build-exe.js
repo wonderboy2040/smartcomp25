@@ -4,7 +4,7 @@
  *
  * Steps:
  *   1. Run `next build` (produces .next/standalone + .next/static)
- *   2. Copy public/ + apps-script/ into .next/standalone so the bundled
+ *   2. Copy public/ into .next/standalone so the bundled
  *      Next.js server can serve them at runtime.
  *   3. Run `electron-builder` with electron-builder.yml — produces
  *      dist/smart-computers-setup-<version>.exe
@@ -80,7 +80,7 @@ async function main() {
   }
 
   // ============================================================
-  // 2. Copy public/, .next/static, apps-script/ into standalone dir
+  // 2. Copy public/, .next/static into standalone dir
   //    (Next.js standalone does NOT include these by default)
   // ============================================================
   log('Step 2/4: Copying static assets into standalone bundle...')
@@ -96,12 +96,6 @@ async function main() {
   const publicDest = path.join(STANDALONE_DIR, 'public')
   copyDir(publicSrc, publicDest)
   log(`  Copied public/ → ${path.relative(PROJECT_ROOT, publicDest)}`)
-
-  // apps-script/ (so the in-app SetupWizard can show the code to paste)
-  const appsScriptSrc = path.join(PROJECT_ROOT, 'apps-script')
-  const appsScriptDest = path.join(STANDALONE_DIR, 'apps-script')
-  copyDir(appsScriptSrc, appsScriptDest)
-  log(`  Copied apps-script/ → ${path.relative(PROJECT_ROOT, appsScriptDest)}`)
 
   // ============================================================
   // 3. Run electron-builder
@@ -157,9 +151,6 @@ async function main() {
       '    filter: ["**/*"]',
       '  - from: public',
       '    to: next-standalone/public',
-      '    filter: ["**/*"]',
-      '  - from: apps-script',
-      '    to: next-standalone/apps-script',
       '    filter: ["**/*"]',
       'extraFiles:',
       '  - from: build/install-shortcuts.bat',

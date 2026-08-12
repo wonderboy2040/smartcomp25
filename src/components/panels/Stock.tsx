@@ -389,6 +389,22 @@ export function StockPanel() {
                           <div>
                             <p className="font-medium text-slate-900">{item?.name || ""}</p>
                             <p className="text-xs text-slate-500">{item.sku}</p>
+                            {/* Confirms at a glance that serials / keys actually
+                                persisted — they are stored per unit, not on the row. */}
+                            {((item.availableKeys?.length || 0) > 0 || (item.availableSerials?.length || 0) > 0) && (
+                              <div className="flex gap-1 mt-1">
+                                {(item.availableKeys?.length || 0) > 0 && (
+                                  <Badge variant="outline" className="text-[9px] bg-amber-50 text-amber-700 border-amber-200">
+                                    <KeyRound className="w-2.5 h-2.5 mr-0.5" />{item.availableKeys.length} keys
+                                  </Badge>
+                                )}
+                                {(item.availableSerials?.length || 0) > 0 && (
+                                  <Badge variant="outline" className="text-[9px] bg-blue-50 text-blue-700 border-blue-200">
+                                    <Hash className="w-2.5 h-2.5 mr-0.5" />{item.availableSerials.length} serials
+                                  </Badge>
+                                )}
+                              </div>
+                            )}
                           </div>
                         </TableCell>
                         <TableCell>
@@ -471,7 +487,19 @@ function ItemDialog({
     if (open) {
       setForm(
         editing
-          ? { ...editing }
+          ? {
+              ...editing,
+              // Serials and keys live in the ItemSerials sheet, not on the item
+              // row. Seed the textareas from the unsold units the list endpoint
+              // already returned so an edit shows what is on file instead of an
+              // empty box (re-typing them used to be the only way to see them).
+              serialNumbers: (editing.availableSerials || []).join('\n'),
+              digitalKeys: (editing.availableKeys || []).join('\n'),
+              isDigitalProduct:
+                editing.isDigitalProduct === true ||
+                editing.isDigitalProduct === 'true' ||
+                (editing.availableKeys || []).length > 0,
+            }
           : {
               name: '', sku: '', category: 'General', hsnCode: '',
               description: '', serialNumbers: '',
@@ -501,13 +529,19 @@ function ItemDialog({
           duration: 4000,
         })
       } else {
-        // ULTRA-ULTRA FAST: Instant optimistic + background sync
-        const { apiPostUltraFast } = await import('@/lib/api')
-        const temp = await apiPostUltraFast('/api/items', form, { instantClose: true })
+        // apiPost is optimistic too — the row appears in the list behind this
+        // dialog immediately — but unlike the fire-and-forget variant it waits
+        // for confirmation, so a failed save reports an error instead of
+        // silently looking like it worked.
+        const { apiPost } = await import('@/lib/api')
+        const created: any = await apiPost('/api/items', form)
         const elapsed = Date.now() - start
+        const extras: string[] = []
+        if (created?.serialsCreated) extras.push(`${created.serialsCreated} serial no.`)
+        if (created?.keysCreated) extras.push(`${created.keysCreated} product key`)
         toast({
-          title: `Item added instantly! ✓ ${elapsed}ms`,
-          description: `${form.name} - SKU: ${temp.sku || ''} - Syncing in background`,
+          title: `Item added ✓ ${elapsed}ms`,
+          description: `${form.name} — SKU: ${created?.sku || form.sku || ''}${extras.length ? ` • saved ${extras.join(' + ')}` : ''}`,
           duration: 4000,
         })
       }

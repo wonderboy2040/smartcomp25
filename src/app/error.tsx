@@ -102,8 +102,8 @@ export default function AppErrorBoundary({
           Something went wrong
         </h1>
         <p style={{ fontSize: 14, color: '#64748b', marginBottom: 16, lineHeight: 1.6 }}>
-          The app hit an unexpected error. Don't worry — your data in Firebase is safe.
-          Try the "Retry" button first; if the issue persists, use "Clear Cache & Reload".
+          The app hit an unexpected error. Don&apos;t worry — your data in Google Sheets is safe.
+          Try the &quot;Retry&quot; button first; if the issue persists, use &quot;Clear Cache &amp; Reload&quot;.
         </p>
 
         <details style={{
@@ -175,7 +175,7 @@ export default function AppErrorBoundary({
           }}
         >
           <RefreshCw style={{ width: 18, height: 18 }} />
-          Clear Cache & Reload
+          Clear Cache &amp; Reload
         </button>
 
         <button
@@ -201,7 +201,7 @@ export default function AppErrorBoundary({
         </button>
 
         <p style={{ fontSize: 11, color: '#64748b', marginTop: 16 }}>
-          Smart Computers Panel · Your Firebase data is never affected by app errors
+          Smart Computers Panel · Your Google Sheets data is never affected by app errors
         </p>
       </div>
     </div>

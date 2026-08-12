@@ -10,6 +10,20 @@ type DocDataCacheEntry = { data: any; expires: number }
 const DOC_DATA_CACHE = new Map<string, DocDataCacheEntry>()
 const CACHE_TTL = 10 * 60 * 1000 // 10 minutes
 
+/**
+ * Short content fingerprint of a source row.
+ *
+ * The cache was keyed on id + type + template + banner alone, so after an edit
+ * the endpoint returned pre-edit data for up to 10 minutes. Fingerprint the
+ * row itself — any saved change produces a different key.
+ */
+function rowFingerprint(row: any): string {
+  let h = 0
+  const s = JSON.stringify(row ?? {})
+  for (let i = 0; i < s.length; i++) h = (Math.imul(h, 31) + s.charCodeAt(i)) | 0
+  return (h >>> 0).toString(36)
+}
+
 // Shop is global and rarely changes. Cache it for 5 min to avoid re-fetching
 // on every doc-data call (which would otherwise double the latency).
 type ShopCacheEntry = { shop: any; expires: number }
@@ -41,7 +55,19 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
     const templateId = url.searchParams.get('template') || ''
     const bannerVariant = url.searchParams.get('banner') || ''
 
-    const cacheKey = `${id}:${type}:${templateId}:${bannerVariant}`
+    const shop = await getShopFast()
+
+    // Load the source row BEFORE the cache lookup so we can fingerprint its
+    // content (same approach as pdf/[id] and doc-html/[id] routes).
+    const sheetName = type === 'quotation' ? 'Quotations' : type === 'service' ? 'Jobs' : 'Invoices'
+    const row = await getRow<any>(sheetName, id)
+    if (!row) return NextResponse.json({ error: `${type} not found` }, { status: 404 })
+
+    const finalTemplateId = templateId || String(row.template || '') || String(shop.pdfTemplate || '') || 'tally-classic'
+    const finalBannerVariant = bannerVariant || String(shop.adBannerVariant || '') || 'flyer'
+
+    // Cache key now includes a content fingerprint so edits invalidate instantly
+    const cacheKey = `${id}:${type}:${finalTemplateId}:${finalBannerVariant}:${rowFingerprint(row)}`
     const cached = DOC_DATA_CACHE.get(cacheKey)
     if (cached && cached.expires > Date.now()) {
       return NextResponse.json(cached.data, {
@@ -49,17 +75,11 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
       })
     }
 
-    const shop = await getShopFast()
-
-    const finalTemplateId = templateId || String(shop.pdfTemplate || '') || 'tally-classic'
-    const finalBannerVariant = bannerVariant || String(shop.adBannerVariant || '') || 'flyer'
-
     let docData: any = null
     const productImages = await getProductImagesFast()
 
     if (type === 'invoice') {
-      const invoice = await getRow<any>('Invoices', id)
-      if (!invoice) return NextResponse.json({ error: 'Invoice not found' }, { status: 404 })
+      const invoice = row
 
       const items = safeJsonParse<any[]>(invoice.itemsJson, []) as LineItem[]
       const calc = computeInvoice(items, {
@@ -107,8 +127,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
         paymentStatus: String(invoice.paymentStatus || 'unpaid'),
       }
     } else if (type === 'quotation') {
-      const q = await getRow<any>('Quotations', id)
-      if (!q) return NextResponse.json({ error: 'Quotation not found' }, { status: 404 })
+      const q = row
 
       const items = safeJsonParse<any[]>(q.itemsJson, []) as LineItem[]
       const calc = computeInvoice(items, {
@@ -153,8 +172,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
         terms: String(shop.termsQuotation || '1. Quotation valid for 7 days.\n2. Prices subject to market changes.\n3. Delivery charges extra if applicable.'),
       }
     } else if (type === 'service') {
-      const job = await getRow<any>('Jobs', id)
-      if (!job) return NextResponse.json({ error: 'Service job not found' }, { status: 404 })
+      const job = row
 
       const partsUsed = safeJsonParse<any[]>(job.partsUsedJson, [])
       const items: LineItem[] = partsUsed.map((p) => ({

@@ -20,7 +20,7 @@ export async function GET(req: NextRequest) {
     }
 
     if (!isConfigured()) {
-      return NextResponse.json({ error: 'Not configured - Firebase credentials missing' }, { status: 400 })
+      return NextResponse.json({ error: 'Firebase not configured' }, { status: 400 })
     }
 
     const url = new URL(req.url)

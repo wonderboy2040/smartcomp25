@@ -17,28 +17,26 @@ export async function GET() {
     firebaseConfigured: firebaseMode,
     pinRequired: !!getAppPin(),
     urlPreview: firebaseMode ? 'firestore (in-process SDK)' : null,
-    endsWithExec: true,
-    // Desktop-mode flags so the Settings panel can show a "Change Cloud URL" UI
+    endsWithExec: firebaseMode,
+    // Desktop-mode flag so the Settings panel can show a "Change Firebase credentials" UI
     runtimeConfigActive: !!process.env.SMARTCOMP_CONFIG_PATH,
   })
 }
 
 // POST /api/config - test connection OR save runtime config (desktop mode)
 export async function POST(req: NextRequest) {
-  // Detect desktop runtime-config mode
   const configPath = process.env.SMARTCOMP_CONFIG_PATH
   let body: any = null
   try {
     body = await req.json().catch(() => null)
   } catch {}
 
-  // If the desktop app is sending a save request, persist to the runtime config file
-  if (configPath && body && (body.appPin !== undefined || body.firebaseServiceAccountBase64 !== undefined)) {
+  // Desktop-mode save: persist Firebase credentials to the runtime config file
+  if (configPath && body && (body.firebaseServiceAccountBase64 !== undefined || body.appPin !== undefined)) {
     try {
       const dir = dirname(configPath)
       if (!existsSync(dir)) mkdirSync(dir, { recursive: true })
 
-      // Merge with existing config
       const existing: any = existsSync(configPath)
         ? JSON.parse(readFileSync(configPath, 'utf-8'))
         : {}
@@ -55,7 +53,7 @@ export async function POST(req: NextRequest) {
 
       return NextResponse.json({
         success: true,
-        message: 'Settings saved. All devices using this backend will see the changes immediately.',
+        message: 'Firebase credentials saved. All devices using this backend will see the changes immediately.',
         configured: isConfigured(),
       })
     } catch (e: any) {

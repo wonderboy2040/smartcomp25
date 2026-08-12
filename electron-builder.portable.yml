@@ -30,9 +30,6 @@ extraResources:
   - from: public
     to: next-standalone/public
     filter: ["**/*"]
-  - from: apps-script
-    to: next-standalone/apps-script
-    filter: ["**/*"]
 extraFiles:
   - from: build/install-shortcuts.bat
     to: install-shortcuts.bat

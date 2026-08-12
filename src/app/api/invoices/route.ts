@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { listRows, createInvoiceUltra } from '@/lib/sheets-client'
 import { computeInvoice, type LineItem } from '@/lib/calc'
 import { apiLimiter, writeLimiter, getClientIp } from '@/lib/rate-limit'
+import { markUnitsSold, parseUnitList } from '@/lib/item-units'
 
 // Normalize invoice paymentType → Payments sheet `type` label
 function normalizePaymentType(raw: string): string {
@@ -86,13 +87,19 @@ export async function POST(req: NextRequest) {
     if (!check.allowed) return NextResponse.json({ error: 'Rate limited' }, { status: 429 })
 
     const body = await req.json()
-    const { customerId, items, courierCharges = 0, otherCharges = 0, discount = 0, paymentType = 'cash', amountPaid = 0, notes = '', date, deductStock = true, template, gstMode = 'gst' } = body
+    const { customerId, items, courierCharges = 0, otherCharges = 0, discount = 0, paymentType = 'cash', amountPaid = 0, notes = '', date, deductStock = true, template = 'tally-classic', gstMode = 'gst', roundOff = false } = body
 
     if (!customerId) return NextResponse.json({ error: 'Customer required' }, { status: 400 })
     if (!Array.isArray(items) || items.length === 0) return NextResponse.json({ error: 'Items required' }, { status: 400 })
 
+    // Validate items have required fields
+    for (const item of items) {
+      if (!item.name) return NextResponse.json({ error: 'Item name required' }, { status: 400 })
+      if (item.quantity <= 0) return NextResponse.json({ error: 'Item quantity must be positive' }, { status: 400 })
+    }
+
     // Compute totals client-side for INSTANT optimistic UI
-    const calc = computeInvoice(items as LineItem[], { courierCharges, otherCharges, discount })
+    const calc = computeInvoice(items as LineItem[], { courierCharges, otherCharges, discount, roundOff: roundOff === true })
     const paid = Number(amountPaid) || 0
     const due = Math.max(0, calc.grandTotal - paid)
 
@@ -126,7 +133,7 @@ export async function POST(req: NextRequest) {
     }
 
     // ULTRA-ULTRA FAST v6.0: Single call does EVERYTHING - customer fetch + number generation + invoice + stock + customer credit + payment
-    // No need to fetch customer or list invoices separately - server does it all in one Firebase execution
+    // No need to fetch customer or list invoices separately - server does it all in one Apps Script execution
     // This is CLIENT-SIDE NUMBER GENERATION ELIMINATED - server generates number
     const result = await createInvoiceUltra({
       customerId,
@@ -153,10 +160,37 @@ export async function POST(req: NextRequest) {
       // Server will fetch customer and generate number
     })
 
+    // Retire the serial numbers / digital keys handed over on this invoice so
+    // the same licence key is never sold twice. Deliberately after the invoice
+    // write and non-fatal: a failure here must not roll back a completed sale,
+    // it only leaves the unit marked in-stock for manual correction.
+    const invoiceId = String(result?.data?.id || '')
+    const invoiceNumber = String(result?.data?.number || '')
+    let unitsMarked = 0
+    if (invoiceId) {
+      const assignments = calc.items.flatMap((line: any) => [
+        { itemId: line.itemId, type: 'key' as const, values: parseUnitList(line.productKeys) },
+        { itemId: line.itemId, type: 'serial' as const, values: parseUnitList(line.serialNumbers) },
+      ]).filter((a) => a.itemId && a.values.length > 0)
+
+      if (assignments.length > 0) {
+        unitsMarked = await markUnitsSold(assignments, {
+          id: invoiceId,
+          number: invoiceNumber,
+          customerName: String(result?.data?.customerName || ''),
+          date: date || new Date().toISOString(),
+        }).catch((err) => {
+          console.error('Failed to mark item units sold for invoice', invoiceNumber, err)
+          return 0
+        })
+      }
+    }
+
     const elapsed = Date.now() - startTime
 
     return NextResponse.json({
       ...result.data,
+      unitsMarkedSold: unitsMarked,
       ultraFast: true,
       ultraUltraFast: true,
       version: '6.0',

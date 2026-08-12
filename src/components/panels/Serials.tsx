@@ -13,7 +13,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { useToast } from '@/hooks/use-toast'
 
-import { Package, Plus, Trash2, Edit3, Search, Shield, ShieldCheck, ShieldAlert } from 'lucide-react'
+import { Package, Plus, Trash2, Edit3, Search, Shield, ShieldCheck, ShieldAlert, KeyRound } from 'lucide-react'
 
 const STATUS_COLORS: Record<string, string> = {
   in_stock: 'bg-emerald-50 text-emerald-700 border-emerald-200',
@@ -27,6 +27,7 @@ export function SerialsPanel() {
   const [search, setSearch] = useState('')
   const [debouncedSearch, setDebouncedSearch] = useState('')
   const [statusFilter, setStatusFilter] = useState('all')
+  const [typeFilter, setTypeFilter] = useState('all')
   const [dialogOpen, setDialogOpen] = useState(false)
   const [editing, setEditing] = useState<any | null>(null)
 
@@ -35,7 +36,11 @@ export function SerialsPanel() {
     return () => clearTimeout(t)
   }, [search])
 
-  const query = `/api/item-serials${debouncedSearch ? `?search=${encodeURIComponent(debouncedSearch)}` : ''}${statusFilter !== 'all' ? `${debouncedSearch ? '&' : '?'}status=${statusFilter}` : ''}`
+  const params = new URLSearchParams()
+  if (debouncedSearch) params.set('search', debouncedSearch)
+  if (statusFilter !== 'all') params.set('status', statusFilter)
+  if (typeFilter !== 'all') params.set('type', typeFilter)
+  const query = `/api/item-serials${params.toString() ? `?${params.toString()}` : ''}`
   const { data, loading, refetch } = useFetch<any>(query, undefined)
 
   const serials = data?.serials || []
@@ -116,6 +121,14 @@ export function SerialsPanel() {
             <SelectItem value="rma">RMA</SelectItem>
           </SelectContent>
         </Select>
+        <Select value={typeFilter} onValueChange={setTypeFilter}>
+          <SelectTrigger className="w-full sm:w-44 h-11"><SelectValue placeholder="All Types" /></SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">Serials + Keys</SelectItem>
+            <SelectItem value="serial">Serial Numbers</SelectItem>
+            <SelectItem value="key">Digital Product Keys</SelectItem>
+          </SelectContent>
+        </Select>
       </div>
 
       {/* Table */}
@@ -144,7 +157,16 @@ export function SerialsPanel() {
                 ) : (
                   serials.map((s: any) => (
                     <TableRow key={s.id} className="hover:bg-slate-50">
-                      <TableCell className="font-mono text-xs font-medium">{s.serialNumber}</TableCell>
+                      <TableCell className="font-mono text-xs font-medium">
+                        {s.serialNumber}
+                        {/* Digital licence keys share this sheet with physical
+                            serials — flag them so they are not mistaken for one. */}
+                        {s.type === 'key' && (
+                          <Badge variant="outline" className="ml-1.5 text-[9px] bg-amber-50 text-amber-700 border-amber-200 align-middle">
+                            <KeyRound className="w-2.5 h-2.5 mr-0.5" />key
+                          </Badge>
+                        )}
+                      </TableCell>
                       <TableCell className="text-sm">{s.itemName || '-'}</TableCell>
                       <TableCell className="text-center">
                         <Badge variant="outline" className={`text-[9px] ${STATUS_COLORS[s.status] || ''}`}>
@@ -206,6 +228,7 @@ function SerialDialog({ open, onOpenChange, editing, onSaved }: {
     itemName: editing?.itemName || '',
     serialNumber: editing?.serialNumber || '',
     serialNumbers: '', // for bulk add (newline-separated)
+    type: editing?.type === 'key' ? 'key' : 'serial',
     warrantyDays: editing?.warrantyDays || 365,
     costPrice: editing?.costPrice || 0,
     status: editing?.status || 'in_stock',
@@ -238,6 +261,7 @@ function SerialDialog({ open, onOpenChange, editing, onSaved }: {
         const payload: any = {
           itemId: form.itemId,
           itemName: form.itemName,
+          type: form.type,
           warrantyDays: form.warrantyDays,
           costPrice: form.costPrice,
           notes: form.notes,
@@ -283,6 +307,16 @@ function SerialDialog({ open, onOpenChange, editing, onSaved }: {
                 >
                   Bulk (multiple)
                 </button>
+              </div>
+              <div>
+                <Label className="text-xs">Type</Label>
+                <Select value={form.type} onValueChange={(v) => setForm({ ...form, type: v })}>
+                  <SelectTrigger className="h-10"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="serial"># Serial Number (physical unit)</SelectItem>
+                    <SelectItem value="key">🔑 Digital Product Key (software licence)</SelectItem>
+                  </SelectContent>
+                </Select>
               </div>
               <div className="grid grid-cols-2 gap-3">
                 <div>

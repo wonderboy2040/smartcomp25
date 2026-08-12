@@ -69,7 +69,7 @@ export default function GlobalError({
             </div>
             <h1 style={{ fontSize: 22, marginBottom: 12, color: '#0f172a' }}>App Error</h1>
             <p style={{ fontSize: 14, color: '#64748b', marginBottom: 20, lineHeight: 1.6 }}>
-              The app hit an unexpected error. Your Firebase data is safe.
+              The app hit an unexpected error. Your Google Sheets data is safe.
               Try reloading. If the problem persists, click "Clear Cache & Reload".
             </p>
             {error?.message && (

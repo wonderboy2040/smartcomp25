@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect, useMemo } from 'react'
-import { useFetch, apiPost, apiPut } from '@/lib/api'
+import { useFetch, apiPost, apiPut, asArray } from '@/lib/api'
 import { safeJsonParse } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -18,7 +18,7 @@ import {
 import { useToast } from '@/hooks/use-toast'
 import { computeInvoice, formatCurrency, calculateProfitMargin, type LineItem } from '@/lib/calc'
 import { Badge } from '@/components/ui/badge'
-import { Plus, Trash2, Search, FileText, AlertTriangle, TrendingUp, Package, IndianRupee, User, CreditCard, UserPlus } from 'lucide-react'
+import { Plus, Trash2, Search, FileText, AlertTriangle, TrendingUp, Package, IndianRupee, User, CreditCard, UserPlus, KeyRound, Hash } from 'lucide-react'
 
 interface DocFormProps {
   open: boolean
@@ -145,6 +145,93 @@ function NewCustomerDialog({
 }
 
 // ─────────────────────────────────────────────────────────────
+// Serial numbers + digital product keys attached to one invoice line.
+//
+// These are pre-filled from the item's unsold units when the line is added
+// (and re-sliced when the quantity changes), but stay editable so the shop
+// can hand over a specific key. Whatever is here is what prints on the
+// invoice and what gets marked sold in the ItemSerials sheet.
+// ─────────────────────────────────────────────────────────────
+function UnitFields({
+  item,
+  idx,
+  updateItem,
+}: {
+  item: any
+  idx: number
+  updateItem: (idx: number, updates: any) => void
+}) {
+  const keys: string[] = item.productKeys || []
+  const serials: string[] = item.serialNumbers || []
+  const availableKeys: string[] = item._availableKeys || []
+  const availableSerials: string[] = item._availableSerials || []
+
+  // Nothing tracked for this item — keep the row compact.
+  if (keys.length === 0 && serials.length === 0 && availableKeys.length === 0 && availableSerials.length === 0) {
+    return null
+  }
+
+  const qty = Math.max(1, Math.floor(Number(item.quantity) || 1))
+  const shortKeys = availableKeys.length > 0 && keys.length < qty
+  const shortSerials = availableSerials.length > 0 && serials.length < qty
+
+  const setValues = (field: 'productKeys' | 'serialNumbers', raw: string) => {
+    updateItem(idx, {
+      [field]: raw.split(/[\r\n]+/).map((s) => s.trim()).filter(Boolean),
+    })
+  }
+
+  return (
+    <div className="mt-1.5 space-y-1.5">
+      {(keys.length > 0 || availableKeys.length > 0) && (
+        <div>
+          <div className="flex items-center gap-1.5">
+            <KeyRound className="w-3 h-3 text-amber-600" />
+            <span className="text-[10px] font-bold text-amber-700">
+              Digital Product Key{keys.length > 1 ? 's' : ''} ({keys.length}/{qty})
+            </span>
+            {shortKeys && (
+              <span className="text-[10px] text-red-600 font-semibold">
+                only {availableKeys.length} key{availableKeys.length === 1 ? '' : 's'} in stock
+              </span>
+            )}
+          </div>
+          <Textarea
+            value={keys.join('\n')}
+            onChange={(e) => setValues('productKeys', e.target.value)}
+            rows={Math.min(4, Math.max(1, keys.length))}
+            placeholder="One key per line — printed on the invoice"
+            className="mt-1 text-[11px] font-mono bg-amber-50/60 border-amber-200 resize-y"
+          />
+        </div>
+      )}
+      {(serials.length > 0 || availableSerials.length > 0) && (
+        <div>
+          <div className="flex items-center gap-1.5">
+            <Hash className="w-3 h-3 text-blue-600" />
+            <span className="text-[10px] font-bold text-blue-700">
+              Serial No{serials.length > 1 ? 's' : ''} ({serials.length}/{qty})
+            </span>
+            {shortSerials && (
+              <span className="text-[10px] text-red-600 font-semibold">
+                only {availableSerials.length} in stock
+              </span>
+            )}
+          </div>
+          <Textarea
+            value={serials.join('\n')}
+            onChange={(e) => setValues('serialNumbers', e.target.value)}
+            rows={Math.min(4, Math.max(1, serials.length))}
+            placeholder="One serial per line — printed on the invoice"
+            className="mt-1 text-[11px] font-mono bg-blue-50/60 border-blue-200 resize-y"
+          />
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ─────────────────────────────────────────────────────────────
 // Main DocForm
 // ─────────────────────────────────────────────────────────────
 export function DocForm({ open, onOpenChange, docType, editing, onSaved }: DocFormProps) {
@@ -168,27 +255,35 @@ export function DocForm({ open, onOpenChange, docType, editing, onSaved }: DocFo
   const [roundOff, setRoundOff] = useState(false)
   const [gstMode, setGstMode] = useState<'gst' | 'non-gst'>('gst')
 
-  const { data: customers } = useFetch<any[]>('/api/customers', undefined)
+  // /api/customers paginates at 100 by default AND switches to a
+  // { data, pagination } wrapper past that. Unpaginated, a shop with 120
+  // customers could only pick from the first 100 — and the wrapper made
+  // `fetched.map` throw outright. Ask for the whole list and unwrap defensively.
+  const { data: customersRaw } = useFetch<any>('/api/customers?limit=100000', undefined)
 
   // Merge fetched customers with any newly created ones
   const allCustomers = useMemo(() => {
-    const fetched = customers || []
+    const fetched = asArray<any>(customersRaw)
     const ids = new Set(fetched.map((c: any) => c.id))
     const extras = localCustomers.filter((c) => !ids.has(c.id))
     return [...extras, ...fetched]
-  }, [customers, localCustomers])
+  }, [customersRaw, localCustomers])
 
-  // Debounced item search
+  // Item search. The whole catalogue is fetched ONCE from the same URL the
+  // Stock panel uses, so the picker opens from cache with zero wait and every
+  // item is present. Searching then filters locally — instant, and no
+  // per-keystroke round-trip to Google Sheets.
+  //
+  // The search term is debounced only to throttle RE-RENDERS of a potentially
+  // long table, not to delay a network call.
   const [itemSearch, setItemSearch] = useState('')
   const [debouncedItemSearch, setDebouncedItemSearch] = useState('')
   useEffect(() => {
-    const t = setTimeout(() => setDebouncedItemSearch(itemSearch), 250)
+    const t = setTimeout(() => setDebouncedItemSearch(itemSearch), 150)
     return () => clearTimeout(t)
   }, [itemSearch])
-  const itemsUrl = debouncedItemSearch
-    ? `/api/items?search=${encodeURIComponent(debouncedItemSearch)}&limit=30`
-    : '/api/items?limit=30'
-  const { data: stockItems } = useFetch<any[]>(itemsUrl, undefined)
+  const { data: stockItemsRaw } = useFetch<any[]>('/api/items', undefined)
+  const stockItems = useMemo(() => asArray<any>(stockItemsRaw), [stockItemsRaw])
   const [showItemPicker, setShowItemPicker] = useState(false)
 
   // Custom item state — now includes description & specification
@@ -205,9 +300,12 @@ export function DocForm({ open, onOpenChange, docType, editing, onSaved }: DocFo
           discount: i.discount || 0,
         }))
         setItems(parsedItems)
-        setCourierCharges(editing.courierCharges || 0)
-        setOtherCharges(editing.otherCharges || 0)
-        setDiscount(editing.discount || 0)
+        const editCourier = Number(editing.courierCharges) || 0
+        const editOther = Number(editing.otherCharges) || 0
+        const editDiscount = Number(editing.discount) || 0
+        setCourierCharges(editCourier)
+        setOtherCharges(editOther)
+        setDiscount(editDiscount)
         setDiscountPercent(0)
         setPaymentType(editing.paymentType || 'cash')
         setAmountPaid(editing.amountPaid || 0)
@@ -215,7 +313,20 @@ export function DocForm({ open, onOpenChange, docType, editing, onSaved }: DocFo
         setValidTill(editing.validTill ? new Date(editing.validTill).toISOString().slice(0, 10) : '')
         setDate(editing.date ? new Date(editing.date).toISOString().slice(0, 10) : new Date().toISOString().slice(0, 10))
         setSelectedTemplate(editing.template || editing.templateId || 'tally-classic')
-        setRoundOff(editing.roundOff === true || editing.roundOff === 'true')
+        // The sheet has no roundOff column, so infer it: rounding was on when
+        // the stored total equals the ROUNDED sum but not the raw sum. Without
+        // this, re-saving an edited invoice silently dropped the rounding.
+        const rawTotal = computeInvoice(parsedItems, {
+          courierCharges: editCourier,
+          otherCharges: editOther,
+          discount: editDiscount,
+        }).grandTotal
+        const storedTotal = Number(editing.grandTotal) || 0
+        setRoundOff(
+          storedTotal > 0 &&
+            Math.abs(storedTotal - Math.round(rawTotal)) < 0.005 &&
+            Math.abs(storedTotal - rawTotal) > 0.005,
+        )
         setGstMode(editing.gstMode === 'non-gst' ? 'non-gst' : 'gst')
       } else {
         setCustomerId('')
@@ -236,30 +347,37 @@ export function DocForm({ open, onOpenChange, docType, editing, onSaved }: DocFo
     }
   }, [open, editing])
 
-  const calc = useMemo(() => {
-    let baseCalc = computeInvoice(items, { courierCharges, otherCharges, discount })
-    if (roundOff) {
-      const rounded = Math.round(baseCalc.grandTotal)
-      const diff = rounded - baseCalc.grandTotal
-      baseCalc = { ...baseCalc, grandTotal: rounded, otherCharges: baseCalc.otherCharges + diff }
-    }
-    return baseCalc
-  }, [items, courierCharges, otherCharges, discount, roundOff])
+  // Rounding is handled inside computeInvoice so the number shown here is
+  // byte-for-byte the number the API stores and the PDF prints. The old code
+  // rounded locally and pushed the difference into otherCharges, which was
+  // never sent — the saved document silently disagreed with this summary.
+  const calc = useMemo(
+    () => computeInvoice(items, { courierCharges, otherCharges, discount, roundOff }),
+    [items, courierCharges, otherCharges, discount, roundOff],
+  )
 
   const selectedCustomer = useMemo(() => {
     return allCustomers.find((c: any) => c.id === customerId)
   }, [allCustomers, customerId])
 
+  // NO row cap. This used to slice to the first 20 items (30 when searching),
+  // so on any shop with more than 20 products "Add from Stock" silently showed
+  // a fraction of the catalogue and the rest looked missing. The picker is
+  // scrollable and searchable — showing everything is the whole point of it.
   const filteredStock = useMemo(() => {
-    const all = stockItems || []
-    if (!itemSearch) return all.slice(0, 20)
-    const q = itemSearch.toLowerCase()
-    return all.filter((i: any) =>
+    const q = debouncedItemSearch.trim().toLowerCase()
+    if (!q) return stockItems
+    // Same fields the Stock panel searches on, so a term that finds an item
+    // there also finds it here.
+    return stockItems.filter((i: any) =>
       String(i?.name || '').toLowerCase().includes(q) ||
       String(i?.sku || '').toLowerCase().includes(q) ||
-      String(i?.category || '').toLowerCase().includes(q)
-    ).slice(0, 30)
-  }, [stockItems, itemSearch])
+      String(i?.category || '').toLowerCase().includes(q) ||
+      String(i?.brand || '').toLowerCase().includes(q) ||
+      String(i?.hsnCode || '').toLowerCase().includes(q) ||
+      String(i?.description || '').toLowerCase().includes(q)
+    )
+  }, [stockItems, debouncedItemSearch])
 
   useEffect(() => {
     if (discountPercent > 0) {
@@ -268,11 +386,32 @@ export function DocForm({ open, onOpenChange, docType, editing, onSaved }: DocFo
     }
   }, [discountPercent, calc.subtotal])
 
+  // Units already promised to earlier lines in THIS document, so adding the
+  // same item twice never hands the customer the same key on both lines.
+  const claimedUnits = useMemo(() => {
+    const keys = new Set<string>()
+    const serials = new Set<string>()
+    for (const line of items) {
+      for (const k of (line as any).productKeys || []) keys.add(`${line.itemId}::${String(k).toLowerCase()}`)
+      for (const s of (line as any).serialNumbers || []) serials.add(`${line.itemId}::${String(s).toLowerCase()}`)
+    }
+    return { keys, serials }
+  }, [items])
+
   const addStockItem = (item: any) => {
     if (docType === 'invoice' && Number(item.quantity) <= 0) {
       toast({ title: 'Out of stock!', description: `${item.name} has 0 quantity`, variant: 'destructive' })
       return
     }
+    const qty = 1
+    // Hand out the oldest unsold units first (FIFO), skipping anything already
+    // attached to another line of this same document.
+    const freeKeys = (item?.availableKeys || []).filter(
+      (k: string) => !claimedUnits.keys.has(`${item?.id}::${String(k).toLowerCase()}`),
+    )
+    const freeSerials = (item?.availableSerials || []).filter(
+      (s: string) => !claimedUnits.serials.has(`${item?.id}::${String(s).toLowerCase()}`),
+    )
     setItems([
       ...items,
       {
@@ -282,23 +421,53 @@ export function DocForm({ open, onOpenChange, docType, editing, onSaved }: DocFo
         specification: item?.specification || '',
         sku: item?.sku || '',
         hsnCode: item?.hsnCode || '',
-        quantity: 1,
+        quantity: qty,
         rate: Number(item?.sellingPrice) || 0,
         gstApplicable: item?.gstApplicable === true || item?.gstApplicable === 'true',
         gstRate: Number(item?.gstRate) || 18,
         costPrice: Number(item?.costPrice) || 0,
         discount: 0,
-      },
+        productKeys: freeKeys.slice(0, qty),
+        serialNumbers: freeSerials.slice(0, qty),
+        _availableKeys: freeKeys,
+        _availableSerials: freeSerials,
+      } as any,
     ])
     setShowItemPicker(false)
     setItemSearch('')
     const stockNote = Number(item.quantity) <= 0
       ? `⚠️ Stock 0 (quotation only)`
       : `Stock ${item.quantity}`
+    const unitNote = freeKeys.length > 0
+      ? ` | 🔑 ${Math.min(qty, freeKeys.length)} key attached`
+      : freeSerials.length > 0
+        ? ` | # ${Math.min(qty, freeSerials.length)} serial attached`
+        : ''
     toast({
       title: `Added: ${item.name}`,
-      description: `Price Rs.${item.sellingPrice} | ${stockNote} | Profit ${calculateProfitMargin(Number(item.costPrice), Number(item.sellingPrice))}%`,
+      description: `Price Rs.${item.sellingPrice} | ${stockNote} | Profit ${calculateProfitMargin(Number(item.costPrice), Number(item.sellingPrice))}%${unitNote}`,
     })
+  }
+
+  /**
+   * Keep the attached key/serial count in step with the line quantity —
+   * selling 3 licences must put 3 keys on the invoice, not the 1 that was
+   * attached when the line was created.
+   */
+  const syncUnitsToQuantity = (line: any, quantity: number): any => {
+    const qty = Math.max(0, Math.floor(Number(quantity) || 0))
+    const next = { ...line }
+    for (const [field, pool] of [
+      ['productKeys', '_availableKeys'],
+      ['serialNumbers', '_availableSerials'],
+    ] as const) {
+      const available: string[] = line[pool] || []
+      if (available.length === 0) continue
+      const current: string[] = line[field] || []
+      if (current.length === qty) continue
+      next[field] = qty <= current.length ? current.slice(0, qty) : available.slice(0, Math.min(qty, available.length))
+    }
+    return next
   }
 
   const addCustomItem = () => {
@@ -323,7 +492,11 @@ export function DocForm({ open, onOpenChange, docType, editing, onSaved }: DocFo
   }
 
   const updateItem = (idx: number, updates: Partial<LineItem>) => {
-    setItems(items.map((it, i) => (i === idx ? { ...it, ...updates } : it)))
+    setItems(items.map((it, i) => {
+      if (i !== idx) return it
+      const merged: any = { ...it, ...updates }
+      return updates.quantity !== undefined ? syncUnitsToQuantity(merged, updates.quantity) : merged
+    }))
   }
 
   const removeItem = (idx: number) => {
@@ -348,9 +521,21 @@ export function DocForm({ open, onOpenChange, docType, editing, onSaved }: DocFo
     setSaving(true)
     const saveStart = Date.now()
     try {
+      // `_availableKeys` / `_availableSerials` are picker-side scratch state —
+      // they must not end up in the stored itemsJson.
+      const cleanItems = items.map((line: any) => {
+        const { _availableKeys, _availableSerials, ...rest } = line
+        return rest
+      })
+
+      // In non-GST mode, force all items to have gstApplicable: false
+      const finalItems = gstMode === 'non-gst'
+        ? cleanItems.map((i: any) => ({ ...i, gstApplicable: false, gstRate: 0 }))
+        : cleanItems
+
       const payload: any = {
         customerId,
-        items,
+        items: finalItems,
         courierCharges,
         otherCharges,
         discount,
@@ -358,9 +543,7 @@ export function DocForm({ open, onOpenChange, docType, editing, onSaved }: DocFo
         date,
         template: selectedTemplate,
         gstMode,
-      }
-      if (gstMode === 'non-gst') {
-        payload.items = items.map((i) => ({ ...i, gstApplicable: false, gstRate: 0 }))
+        roundOff,
       }
       if (docType === 'invoice') {
         payload.paymentType = paymentType
@@ -388,7 +571,7 @@ export function DocForm({ open, onOpenChange, docType, editing, onSaved }: DocFo
       } else {
         toast({
           title: `Creating ${docType}... ⚡`,
-          description: `Client number ${tempNumber} generated instantly - syncing to Firebase`,
+          description: `Client number ${tempNumber} generated instantly - syncing to Google Sheets`,
           duration: 2000,
         })
 
@@ -437,8 +620,8 @@ export function DocForm({ open, onOpenChange, docType, editing, onSaved }: DocFo
 
         <div className="p-4 sm:p-6 space-y-5">
           {/* Customer + Date + Template */}
-          <div className="grid grid-cols-1 lg:grid-cols-12 gap-4">
-            <div className="lg:col-span-5">
+          <div className="grid grid-cols-1 lg:grid-cols-10 gap-4">
+            <div className="lg:col-span-4">
               <Label className="text-xs font-bold text-slate-700 flex items-center gap-1.5">
                 <User className="w-3.5 h-3.5" />Customer *
                 {selectedCustomer && (
@@ -489,7 +672,7 @@ export function DocForm({ open, onOpenChange, docType, editing, onSaved }: DocFo
               <Label className="text-xs font-bold text-slate-700">Date</Label>
               <Input type="date" value={date} onChange={(e) => setDate(e.target.value)} className="mt-1.5 h-11 bg-white border-slate-200" />
             </div>
-            <div className="lg:col-span-3">
+            <div className="lg:col-span-2">
               <Label className="text-xs font-bold text-slate-700">PDF Template <span className="text-[10px] text-indigo-600 font-semibold">10 Premium</span></Label>
               <Select value={selectedTemplate} onValueChange={setSelectedTemplate}>
                 <SelectTrigger className="mt-1.5 h-11 bg-white border-slate-200"><SelectValue /></SelectTrigger>
@@ -609,6 +792,7 @@ export function DocForm({ open, onOpenChange, docType, editing, onSaved }: DocFo
                             {item.itemId && <span className="text-[10px] px-1.5 py-0.5 bg-blue-50 text-blue-700 border border-blue-200 rounded">Stock linked</span>}
                             {margin > 0 && <span className={`text-[10px] px-1.5 py-0.5 rounded border font-bold ${margin > 30 ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : margin > 15 ? 'bg-amber-50 text-amber-700 border-amber-200' : 'bg-red-50 text-red-700 border-red-200'}`}>{margin}% margin</span>}
                           </div>
+                          <UnitFields item={item} idx={idx} updateItem={updateItem} />
                         </TableCell>
                         <TableCell><Input type="number" min={0.1} step={0.1} value={item.quantity} onChange={(e) => updateItem(idx, { quantity: Number(e.target.value) })} className="h-9 text-sm font-semibold bg-white border-slate-200" /></TableCell>
                         <TableCell>
@@ -665,6 +849,7 @@ export function DocForm({ open, onOpenChange, docType, editing, onSaved }: DocFo
                           placeholder="Specification (optional)"
                           className="h-7 text-xs mt-1 bg-slate-50 border-slate-200"
                         />
+                        <UnitFields item={item} idx={idx} updateItem={updateItem} />
                       </div>
                       <Button variant="ghost" size="sm" className="h-8 w-8 p-0" onClick={() => removeItem(idx)}><Trash2 className="w-4 h-4 text-red-500" /></Button>
                     </div>
@@ -818,6 +1003,7 @@ export function DocForm({ open, onOpenChange, docType, editing, onSaved }: DocFo
                   <div className="text-[10px] text-slate-400 pl-2">SGST: {formatCurrency(calc.sgstAmount)} | CGST: {formatCurrency(calc.cgstAmount)}</div>
                   {courierCharges > 0 && <div className="flex justify-between"><span className="text-slate-300">Courier:</span><span>{formatCurrency(courierCharges)}</span></div>}
                   {otherCharges > 0 && <div className="flex justify-between"><span className="text-slate-300">Other:</span><span>{formatCurrency(otherCharges)}</span></div>}
+                  {calc.roundOff !== 0 && <div className="flex justify-between"><span className="text-slate-300">Round Off:</span><span>{calc.roundOff > 0 ? '+' : '-'} {formatCurrency(Math.abs(calc.roundOff))}</span></div>}
                   <div className="border-t border-white/10 my-2"></div>
                   <div className="flex justify-between text-base font-bold"><span>Grand Total:</span><span className="text-lg text-white">{formatCurrency(calc.grandTotal)}</span></div>
                   {docType === 'invoice' && (
@@ -856,14 +1042,22 @@ export function DocForm({ open, onOpenChange, docType, editing, onSaved }: DocFo
       <Dialog open={showItemPicker} onOpenChange={setShowItemPicker}>
         <DialogContent className="sm:max-w-3xl max-h-[85vh] overflow-y-auto bg-white p-0">
           <DialogHeader className="p-4 pb-2 border-b bg-slate-50 sticky top-0 z-10">
-            <DialogTitle className="text-base font-bold text-slate-900 flex items-center gap-2"><Package className="w-5 h-5" />Select Item from Stock - Profit Visible</DialogTitle>
+            <DialogTitle className="text-base font-bold text-slate-900 flex items-center gap-2">
+              <Package className="w-5 h-5" />Select Item from Stock - Profit Visible
+              {/* Explicit count so it is obvious the FULL catalogue is loaded. */}
+              <Badge variant="outline" className="ml-auto bg-white text-slate-700 border-slate-200 font-bold text-[10px]">
+                {debouncedItemSearch
+                  ? `${filteredStock.length} of ${stockItems.length} items`
+                  : `${stockItems.length} items`}
+              </Badge>
+            </DialogTitle>
             <div className="relative mt-3">
               <Search className="w-4 h-4 absolute left-3 top-3 text-slate-400" />
-              <Input placeholder="Search by name, SKU, category..." value={itemSearch} onChange={(e) => setItemSearch(e.target.value)} className="pl-10 h-11 bg-white border-slate-200 font-medium" autoFocus />
+              <Input placeholder="Search by name, SKU, category, HSN..." value={itemSearch} onChange={(e) => setItemSearch(e.target.value)} className="pl-10 h-11 bg-white border-slate-200 font-medium" autoFocus />
             </div>
           </DialogHeader>
           <div className="p-0">
-            <div className="max-h-[50vh] overflow-y-auto">
+            <div className="max-h-[55vh] overflow-y-auto">
               <Table>
                 <TableHeader className="sticky top-0 bg-slate-50 z-10">
                   <TableRow>
@@ -877,7 +1071,9 @@ export function DocForm({ open, onOpenChange, docType, editing, onSaved }: DocFo
                   {filteredStock.length === 0 ? (
                     <TableRow>
                       <TableCell colSpan={4} className="text-center py-8 text-slate-500">
-                        No items found for &quot;{itemSearch}&quot; - Try different keyword or add custom item
+                        {itemSearch
+                          ? `No items match "${itemSearch}" — try a different keyword, or use Quick Add Custom Item below.`
+                          : 'No stock items yet. Add items in the Stock panel, or use Quick Add Custom Item below.'}
                       </TableCell>
                     </TableRow>
                   ) : filteredStock.map((item: any) => {
@@ -907,6 +1103,16 @@ export function DocForm({ open, onOpenChange, docType, editing, onSaved }: DocFo
                             <span className="text-[10px] px-1.5 py-0.5 bg-blue-50 text-blue-700 border border-blue-200 rounded">{item.category}</span>
                             <span className={`text-[10px] px-1.5 py-0.5 rounded border font-bold ${stockBadgeClass}`}>{stockBadgeText}</span>
                             <span className={`text-[10px] px-1.5 py-0.5 rounded border font-bold ${margin > 30 ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : margin > 15 ? 'bg-amber-50 text-amber-700 border-amber-200' : 'bg-red-50 text-red-700 border-red-200'}`}>Margin: {margin}%</span>
+                            {(item.availableKeys?.length || 0) > 0 && (
+                              <span className="text-[10px] px-1.5 py-0.5 rounded border font-bold bg-amber-50 text-amber-700 border-amber-200 flex items-center gap-0.5">
+                                <KeyRound className="w-2.5 h-2.5" />{item.availableKeys.length} key{item.availableKeys.length === 1 ? '' : 's'}
+                              </span>
+                            )}
+                            {(item.availableSerials?.length || 0) > 0 && (
+                              <span className="text-[10px] px-1.5 py-0.5 rounded border font-bold bg-blue-50 text-blue-700 border-blue-200 flex items-center gap-0.5">
+                                <Hash className="w-2.5 h-2.5" />{item.availableSerials.length} serial{item.availableSerials.length === 1 ? '' : 's'}
+                              </span>
+                            )}
                           </div>
                           <div className="text-[10px] text-slate-500 mt-1">HSN: {item.hsnCode || '-'} | Min: {item.minQuantity} | Supplier: {item.supplier?.name || '-'}</div>
                         </TableCell>

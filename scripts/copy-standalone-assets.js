@@ -62,15 +62,6 @@ function main() {
   const publicCount = copyDir(PUBLIC_SRC, PUBLIC_DST)
   console.log(`[postbuild] copied ${publicCount} public files to .next/standalone/public/`)
 
-  // Also copy apps-script/ so the in-app "Copy Apps Script code" feature
-  // works in standalone mode (the route reads it via fs at request time).
-  const APPS_SCRIPT_SRC = path.join(PROJECT_ROOT, 'apps-script')
-  const APPS_SCRIPT_DST = path.join(STANDALONE_DIR, 'apps-script')
-  if (fs.existsSync(APPS_SCRIPT_SRC)) {
-    const asCount = copyDir(APPS_SCRIPT_SRC, APPS_SCRIPT_DST)
-    console.log(`[postbuild] copied ${asCount} apps-script files to .next/standalone/apps-script/`)
-  }
-
   console.log('[postbuild] ✓ standalone bundle is ready for deployment')
 }
 

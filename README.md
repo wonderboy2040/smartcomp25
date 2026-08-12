@@ -1,29 +1,36 @@
-# SmartComp — Sales & Service Panel (Firebase Edition v10.1)
+# SmartComp — Sales & Service Panel (Firebase-only Edition v12.0)
 
 A focused shop-management web app for computer sales & service stores.
 Built with Next.js 15 + React 18 + Tailwind 4 + shadcn/ui, backed by
-**Firebase Firestore** (ultra fast, free tier).
+**Firebase Firestore** (ultra fast, in-process SDK, sub-100ms reads,
+sub-1ms cache hits).
 
-> **What's new in v10.1**: The backend was migrated from Google Sheets
-> (slow, 6–8 s cold starts via Apps Script) to **Firebase Firestore**
-> (in-process SDK, <100 ms reads, <200 ms writes). The frontend, all
-> `/api` routes, the PIN gate, WhatsApp automation, AI features, and the
-> PWA offline support are UNCHANGED — only the data layer was swapped.
-> See [`apps-script/DEPRECATED.md`](apps-script/DEPRECATED.md) for the
-> migration story.
+> **What's new in v12.0**: Merged all latest features from `smartcomp`
+> upstream into the Firebase-only codebase:
+> - **Item units** — serial numbers + digital product keys tracked per-unit
+> - **Round-off** — round grand total to nearest whole rupee (Tally-style)
+> - **isDigitalProduct** flag on items
+> - **Anti-clobber pending creates** in `api.ts` — prevents optimistic rows
+>   from being wiped by racing refetches
+> - **Stale-cache fallback** — soft "showing cached data" hint when refresh fails
+> - **Invoice item validation** — name + positive quantity required
+> - Improved `DocForm`, `Jobs`, `Serials`, `Settings`, `Stock` components
+>
+> **v11.5 (previous)**: Google Sheets / Apps Script support completely removed.
+> Firebase Firestore is the only backend.
 
 ## Core Modules
 
 - Dashboard — sales, stock, outstanding, payments, jobs, profit share
-- Stock — items, low-stock alerts, cost/sell tracking
-- Invoices — 10 premium GST templates, A4 print, HSN summary, UPI QR
-- Quotations — convert to invoice in one click
+- Stock — items, low-stock alerts, cost/sell tracking, serial numbers, digital keys
+- Invoices — 10 premium GST templates, A4 print, HSN summary, UPI QR, round-off
+- Quotations — convert to invoice in one click, round-off
 - Payments — collection tracking, partial payments
 - Customers / Suppliers — contact + GST + outstanding
 - WhatsApp Enquiry — bulk supplier rate enquiries
 - Service Jobs — stock-linked parts, engineer/admin profit share
 - Service Payments — separate payment ledger for jobs
-- Serials & Warranty — IMEI / serial tracking
+- Serials & Warranty — IMEI / serial tracking + digital product keys
 - AMC Contracts — annual maintenance contracts
 - Shop Expenses / Personal Expenditure
 - Campaigns — bulk WhatsApp broadcasts
@@ -34,12 +41,16 @@ Built with Next.js 15 + React 18 + Tailwind 4 + shadcn/ui, backed by
 
 ## Performance Notes
 
-- In-process Firestore SDK call (no HTTP round-trip, no cold start)
-- 60 s LRU cache + 5 s quantum mem cache + write-through patching
+- **In-process Firestore SDK call** — no HTTP round-trip, no cold start
+- **60s LRU cache** + **5s quantum mem cache** + **write-through patching**
+- **Anti-clobber pending creates** — newly added rows survive racing refetches
+- **Stale-cache fallback** — soft warning instead of error toast on refresh failure
+- Typical cache hit: **<1ms** · Firestore read: **<100ms** · write: **<200ms**
 - Document preview opens instantly with a skeleton, then fills in `/api/doc-data`
 - Shop config and product images cached server-side for 5 min
 - Lazy-loaded panels + optimistic UI for instant writes
 - Periodic dashboard refresh (2 min) instead of aggressive live sync
+- Browser fetch timeouts tightened: 8s writes / 6s reads (Firestore is sub-200ms)
 
 ---
 
@@ -115,23 +126,8 @@ base64 -w0 smartcomp-prod-firebase-adminsdk-xxxx.json
 Copy the output (a long single-line string) — this is the value you'll paste
 into Render's env vars.
 
-### Step 6 — (Optional) Migrate existing Google Sheets data
-
-If you have an existing SmartComp deployment using Google Sheets, run the
-one-time migration script to copy data into Firestore:
-
-```bash
-APPS_SCRIPT_URL=https://script.google.com/macros/s/.../exec \
-APP_PIN=1234 \
-FIREBASE_SERVICE_ACCOUNT_BASE64=$(base64 -w0 service-account.json) \
-node scripts/migrate-sheets-to-firestore.js
-```
-
-See [`apps-script/DEPRECATED.md`](apps-script/DEPRECATED.md) for full details.
-The script is idempotent — running it twice merges, doesn't duplicate.
-
-If you're starting fresh, skip this step (the in-app **Setup Wizard** has a
-"Seed sample data" button that creates a few demo items and customers).
+If you're starting fresh, the in-app **Setup Wizard** has a
+"Seed sample data" button that creates a few demo items and customers.
 
 ---
 
@@ -149,8 +145,6 @@ The repo includes a `render.yaml` that Render auto-detects.
    | `FIREBASE_SERVICE_ACCOUNT_BASE64` | the base64 string from Step 5 | ✅ |
    | `APP_PIN` | 4-digit PIN of your choice | recommended |
    | `NEXT_PUBLIC_BASE_URL` | `https://your-app.onrender.com` | optional |
-
-   Leave the legacy `APPS_SCRIPT_URL` unset — Firebase mode takes over.
 
 5. Click **Save** → Render builds & deploys.
 6. Visit `/api/health` to confirm — you should see:
@@ -203,22 +197,6 @@ escapes between the PEM lines. Render preserves these as-is.
 | `CRON_SECRET` | Protects `/api/cron/*` endpoints | unset = cron endpoints 403 |
 | `RAZORPAY_WEBHOOK_SECRET` | Verifies Razorpay webhook signatures | unset = webhook 403 |
 | `WA_TOKEN`, `WA_PHONE_NUMBER_ID`, `WA_BUSINESS_NUMBER`, `WA_VERIFY_TOKEN` | WhatsApp Cloud API (auto-send + auto-capture replies) | unset = wa.me manual mode |
-| `APPS_SCRIPT_URL` | Legacy backend (only if you haven't migrated) | unset = Firebase mode |
-
----
-
-## What happened to `apps-script/code.gs`?
-
-It's still in the repo (in the `apps-script/` folder) but is **deprecated**.
-You don't need to deploy it, edit it, or even open it — the new Firebase
-backend handles everything.
-
-Full details in [`apps-script/DEPRECATED.md`](apps-script/DEPRECATED.md).
-Short version:
-
-1. Keep the Apps Script project for the first 2 weeks as a backup.
-2. Run the migration script once to copy data into Firestore.
-3. After verifying everything works on Render, delete the Apps Script project.
 
 ---
 
@@ -230,6 +208,8 @@ Short version:
                        │  ├─ /api/* routes (60+)              │
                        │  ├─ PIN gate (proxy.ts)              │
                        │  ├─ Write-through cache (60s + 5s)   │
+                       │  ├─ Anti-clobber pending creates     │
+                       │  ├─ Stale-cache fallback             │
                        │  └─ firebase-admin SDK (in-process)  │
                        └─────────────┬────────────────────────┘
                                      │ HTTPS (server-to-server, <100ms)
@@ -250,24 +230,22 @@ on the Render server, never exposed to the browser.
 
 ```
 smartcomp/
-├── apps-script/
-│   ├── code.gs               # DEPRECATED — old Apps Script backend
-│   └── DEPRECATED.md         # what to do with it
-├── scripts/
-│   ├── migrate-sheets-to-firestore.js  # one-time data migration
-│   └── ...
 ├── src/
 │   ├── lib/
-│   │   ├── firebase.ts       # NEW — Firestore admin SDK singleton
-│   │   ├── sheets-client.ts  # REWRITTEN — Firestore backend, same API
-│   │   ├── runtime-config.ts # UPDATED — Firebase + Apps Script support
+│   │   ├── firebase.ts           # Firestore admin SDK singleton (lazy-loaded)
+│   │   ├── sheets-client.ts      # Firestore data layer (kept name for compat)
+│   │   ├── runtime-config.ts     # Firebase + PIN config loader
+│   │   ├── item-units.ts         # NEW v12 — serial numbers + digital keys
+│   │   ├── api.ts                # Frontend fetch wrapper (anti-clobber + stale)
+│   │   ├── calc.ts               # Invoice/quotation calc (with roundOff)
+│   │   ├── validators.ts         # Item schema (with isDigitalProduct)
 │   │   └── ...
-│   ├── app/api/              # 60+ API routes (unchanged)
-│   ├── components/panels/    # 30+ UI panels (unchanged)
+│   ├── app/api/                  # 60+ API routes
+│   ├── components/panels/        # 30+ UI panels
 │   └── ...
-├── render.yaml               # Render blueprint (Firebase env vars)
-├── package.json              # + firebase-admin dep
-└── README.md                 # this file
+├── render.yaml                   # Render blueprint (Firebase env vars)
+├── package.json                  # firebase-admin dep
+└── README.md                     # this file
 ```
 
 ---

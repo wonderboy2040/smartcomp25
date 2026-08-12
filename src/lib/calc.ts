@@ -13,6 +13,14 @@ export interface LineItem {
   gstRate: number
   costPrice?: number
   discount?: number
+  /**
+   * Tracked units handed over with this line: physical serial numbers and
+   * digital licence / activation keys. Stored on the line (and therefore in
+   * the invoice's itemsJson) so the printed invoice is a permanent record of
+   * exactly which key the customer received.
+   */
+  serialNumbers?: string[]
+  productKeys?: string[]
 }
 
 export interface ComputedLineItem extends LineItem {
@@ -35,6 +43,12 @@ export interface InvoiceCalc {
   grandTotal: number
   totalCost: number
   profit: number
+  /**
+   * Rupees added/removed to reach a whole-rupee grand total, when the document
+   * was saved with "Round Off" on. 0 when rounding is off. Printed as its own
+   * line so the customer can see why the total is not the exact sum.
+   */
+  roundOff: number
 }
 
 export function computeLineItem(item: LineItem): ComputedLineItem {
@@ -64,6 +78,8 @@ export function computeInvoice(
     courierCharges?: number
     otherCharges?: number
     discount?: number
+    /** Round the grand total to the nearest whole rupee (Tally-style). */
+    roundOff?: boolean
   } = {}
 ): InvoiceCalc {
   const computed = items.map(computeLineItem)
@@ -74,7 +90,10 @@ export function computeInvoice(
   const courierCharges = Number(options.courierCharges) || 0
   const otherCharges = Number(options.otherCharges) || 0
   const discount = Number(options.discount) || 0
-  const grandTotal = Math.max(0, subtotal + gstAmount + courierCharges + otherCharges - discount)
+  const rawTotal = Math.max(0, subtotal + gstAmount + courierCharges + otherCharges - discount)
+  // Rounding is folded into the grand total itself rather than into
+  // otherCharges — the charge lines must keep printing what the shop entered.
+  const grandTotal = options.roundOff === true ? Math.round(rawTotal) : round2(rawTotal)
   const totalCost = computed.reduce((s, i) => s + i.costTotal, 0)
   const profit = subtotal - totalCost - discount
   return {
@@ -86,9 +105,10 @@ export function computeInvoice(
     courierCharges: round2(courierCharges),
     otherCharges: round2(otherCharges),
     discount: round2(discount),
-    grandTotal: round2(grandTotal),
+    grandTotal,
     totalCost: round2(totalCost),
     profit: round2(profit),
+    roundOff: round2(grandTotal - rawTotal),
   }
 }
 

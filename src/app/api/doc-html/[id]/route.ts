@@ -41,6 +41,20 @@ type ShopCacheEntry = { shop: any; expires: number }
 let shopCache: ShopCacheEntry | null = null
 const SHOP_CACHE_TTL = 5 * 60 * 1000
 
+/**
+ * Short content fingerprint of a source row.
+ *
+ * The cache was keyed on id + template + banner alone, so for ten minutes after
+ * an edit the user was served the PRE-EDIT HTML. Fingerprint the row itself —
+ * any saved change produces a different key. (Same approach as pdf/[id]/route.ts)
+ */
+function rowFingerprint(row: any): string {
+  let h = 0
+  const s = JSON.stringify(row ?? {})
+  for (let i = 0; i < s.length; i++) h = (Math.imul(h, 31) + s.charCodeAt(i)) | 0
+  return (h >>> 0).toString(36)
+}
+
 async function getShopFast(): Promise<any> {
   if (shopCache && shopCache.expires > Date.now()) {
     return shopCache.shop
@@ -66,15 +80,31 @@ export async function GET(
     const { id } = await params
     const url = new URL(req.url)
     const type = url.searchParams.get('type') || 'invoice'
-    const templateId =
-      url.searchParams.get('template') ||
-      'tally-classic'
     const bannerVariant =
       url.searchParams.get('banner') || 'flyer'
     const gstMode = (url.searchParams.get('gstMode') === 'non-gst' ? 'non-gst' : 'gst') as 'gst' | 'non-gst'
 
-    // Cache key — if we've rendered this exact combo in the last 10 min, return it
-    const cacheKey = `${id}:${type}:${templateId}:${bannerVariant}:${gstMode}`
+    // Fast shop info with 5-min memory cache
+    const shop = await getShopFast()
+
+    // Load the source row BEFORE the cache lookup so we can fingerprint its
+    // content and use the row's stored template as a fallback.
+    const sheetName = type === 'quotation' ? 'Quotations' : type === 'service' ? 'Jobs' : 'Invoices'
+    const row = await getRow<any>(sheetName, id)
+    if (!row) {
+      return NextResponse.json({ error: 'Not found' }, { status: 404 })
+    }
+
+    // Template fallback chain aligned with pdf/[id]/route.ts:
+    // query param → row's saved template → shop default → hard default
+    const templateId =
+      url.searchParams.get('template') ||
+      String(row.template || '') ||
+      String(shop.pdfTemplate || '') ||
+      'tally-classic'
+
+    // Cache key now includes a content fingerprint so edits invalidate instantly
+    const cacheKey = `${id}:${type}:${templateId}:${bannerVariant}:${gstMode}:${rowFingerprint(row)}`
     const cached = getCachedHtml(cacheKey)
     if (cached) {
       return new NextResponse(cached, {
@@ -86,19 +116,11 @@ export async function GET(
       })
     }
 
-    // Fast shop info with 5-min memory cache
-    const shop = await getShopFast()
     // Pre-load product images (logo + ad banners) once for all doc types
     const productImages = await loadProductImages()
 
     if (type === 'invoice') {
-      const invoice = await getRow<any>('Invoices', id)
-      if (!invoice) {
-        return NextResponse.json(
-          { error: 'Not found' },
-          { status: 404 },
-        )
-      }
+      const invoice = row
 
       const items = safeJsonParse<any[]>(invoice.itemsJson, []) as LineItem[]
       const calc = computeInvoice(items, {
@@ -159,13 +181,7 @@ export async function GET(
     }
 
     if (type === 'quotation') {
-      const q = await getRow<any>('Quotations', id)
-      if (!q) {
-        return NextResponse.json(
-          { error: 'Not found' },
-          { status: 404 },
-        )
-      }
+      const q = row
 
       const items = safeJsonParse<any[]>(q.itemsJson, []) as LineItem[]
       const calc = computeInvoice(items, {
@@ -223,13 +239,7 @@ export async function GET(
     }
 
     if (type === 'service') {
-      const job = await getRow<any>('Jobs', id)
-      if (!job) {
-        return NextResponse.json(
-          { error: 'Service Job not found' },
-          { status: 404 },
-        )
-      }
+      const job = row
 
       const partsUsed = safeJsonParse<any[]>(job.partsUsedJson || job.partsUsed || '[]', [])
       const lineItems: LineItem[] = [

@@ -14,7 +14,7 @@ import { Textarea } from '@/components/ui/textarea'
 import { Badge } from '@/components/ui/badge'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { useToast } from '@/hooks/use-toast'
-import { Store, Settings as SettingsIcon, FileSpreadsheet, RefreshCw, CheckCircle2, AlertCircle, Database, Sparkles, Code, Copy, ExternalLink, Loader2, ShieldCheck, Zap, Cloud, Send, X, Bug, Download, HardDrive, Activity, Cpu, BarChart3, FileJson, FileText, Star, Megaphone } from 'lucide-react'
+import { Store, Settings as SettingsIcon, FileSpreadsheet, RefreshCw, CheckCircle2, AlertCircle, Database, Sparkles, Code, Copy, ExternalLink, Loader2, ShieldCheck, Zap, Cloud, Send, X, Bug, Download, HardDrive, Activity, Cpu, BarChart3, FileJson, FileText, Star, Megaphone, Flame } from 'lucide-react'
 import { BUSINESS_GROWTH } from '@/lib/business-growth'
 
 export function SettingsPanel() {
@@ -374,6 +374,7 @@ function SyncStatus() {
   const { toast } = useToast()
   const { data: status, refetch } = useFetch<any>('/api/sheets/sync', undefined)
   const { data: settingsInfo } = useFetch<any>('/api/settings', undefined)
+  const { data: health } = useFetch<any>('/api/health', undefined)
   const [testing, setTesting] = useState(false)
   const [lastError, setLastError] = useState<string | null>(null)
   const [lastSuccess, setLastSuccess] = useState<string | null>(null)
@@ -387,7 +388,7 @@ function SyncStatus() {
       const res = await r.json()
       if (res.success) {
         setLastSuccess(res.message || 'Connected to Firebase Firestore successfully!')
-        toast({ title: 'Connection successful!', description: 'Firebase Firestore is connected.' })
+        toast({ title: 'Connection successful!', description: 'Firestore is reachable.' })
       } else {
         setLastError(res.message || 'Connection failed')
         toast({ title: 'Connection failed', description: 'See details below', variant: 'destructive', duration: 10000 })
@@ -403,35 +404,39 @@ function SyncStatus() {
 
   return (
     <div className="space-y-4">
-      <Card className="border-slate-200 shadow-sm">
+      <Card className="border-amber-200 shadow-sm">
         <CardHeader>
           <CardTitle className="text-base flex items-center gap-2">
-            <div className="w-8 h-8 bg-violet-100 rounded-lg flex items-center justify-center">
-              <Cloud className="w-4 h-4 text-violet-600" />
+            <div className="w-8 h-8 bg-amber-100 rounded-lg flex items-center justify-center">
+              <Flame className="w-4 h-4 text-amber-600" />
             </div>
             Firebase Firestore Status
           </CardTitle>
-          <CardDescription>Your data is stored in Firebase Firestore (in-process SDK, ultra fast)</CardDescription>
+          <CardDescription>Ultra-fast in-process SDK · sub-100ms reads · 50K free reads/day</CardDescription>
         </CardHeader>
         <CardContent className="space-y-3">
-          <div className="flex items-center justify-between p-4 bg-gradient-to-r from-emerald-50 to-emerald-100/50 rounded-xl border border-emerald-200">
+          <div className="flex items-center justify-between p-4 bg-gradient-to-r from-amber-50 to-orange-100/50 rounded-xl border border-amber-200">
             <div className="flex items-center gap-3">
-              <div className="w-10 h-10 bg-emerald-100 rounded-full flex items-center justify-center">
-                <CheckCircle2 className="w-5 h-5 text-emerald-600" />
+              <div className="w-10 h-10 bg-amber-100 rounded-full flex items-center justify-center">
+                <Flame className="w-5 h-5 text-amber-600" />
               </div>
               <div>
                 <p className="font-semibold text-slate-900">
-                  {status?.enabled ? 'Connected to Firebase' : 'Not Connected'}
+                  {status?.enabled ? 'Connected to Firestore' : 'Not Connected'}
                 </p>
                 <p className="text-xs text-slate-600">
-                  {status?.enabled ? 'All data syncs in real-time' : 'Firebase credentials not set'}
+                  {status?.enabled ? 'Backend: ' + (status.backend || 'firestore') : 'FIREBASE_SERVICE_ACCOUNT_BASE64 not set'}
                 </p>
               </div>
             </div>
-            <Badge variant="outline" className="bg-green-50 text-green-700 border-green-200">
-              Active
+            <Badge variant="outline" className="bg-amber-50 text-amber-700 border-amber-200">
+              {status?.version ? `v${status.version}` : 'v12.0'}
             </Badge>
           </div>
+
+          {settingsInfo?.runtimeConfigActive && (
+            <DesktopCloudConfigEditor />
+          )}
 
           {status?.counts && (
             <div className="grid grid-cols-3 gap-3">
@@ -456,7 +461,6 @@ function SyncStatus() {
             </Button>
           </div>
 
-          {/* Persistent error/success display — stays visible until dismissed */}
           {lastError && (
             <div className="bg-red-50 border border-red-200 rounded-lg p-3 flex items-start gap-2">
               <AlertCircle className="w-4 h-4 text-red-600 flex-shrink-0 mt-0.5" />
@@ -484,19 +488,92 @@ function SyncStatus() {
 
           <div className="bg-slate-50 border border-slate-200 rounded-lg p-3 mt-2">
             <div className="flex items-start gap-2">
-              <ShieldCheck className="w-4 h-4 text-emerald-600 flex-shrink-0 mt-0.5" />
+              <ShieldCheck className="w-4 h-4 text-amber-600 flex-shrink-0 mt-0.5" />
               <div className="text-xs text-slate-700">
                 <p className="font-medium mb-1">How it works:</p>
                 <ul className="list-disc list-inside space-y-0.5">
-                  <li>Data is stored in Firebase Firestore (no Firebase Firestore needed)</li>
-                  <li>FIREBASE_SERVICE_ACCOUNT_BASE64 env var connects your app to Firestore</li>
-                  <li>Collections auto-created: Shop, Items, Customers, Suppliers, Invoices, Quotations, Payments, Enquiries</li>
-                  <li>Multi-device support: any device accessing this URL sees the same data</li>
-                  <li>Works on Render/Vercel free tier</li>
+                  <li>Data is stored in Firebase Firestore (in-process SDK, no HTTP round-trip)</li>
+                  <li>Backend mode: <code className="bg-amber-100 px-1 rounded">FIREBASE_SERVICE_ACCOUNT_BASE64</code> env var</li>
+                  <li>16 collections auto-managed: Shop, Items, Customers, Suppliers, Invoices, Quotations, etc.</li>
+                  <li>Multi-device support: any device accessing this app sees the same data</li>
+                  <li>Works on Render/Vercel free tier (Firestore free tier is generous)</li>
+                  <li>Typical cache hit: &lt;1ms · Firestore read: &lt;100ms · write: &lt;200ms</li>
                 </ul>
               </div>
             </div>
           </div>
+
+          {health?.cache && (
+            <div className="bg-slate-50 border border-slate-200 rounded-lg p-3 mt-2">
+              <div className="flex items-start gap-2">
+                <Activity className="w-4 h-4 text-blue-600 flex-shrink-0 mt-0.5" />
+                <div className="text-xs text-slate-700 flex-1">
+                  <p className="font-medium mb-1">Cache Performance</p>
+                  <div className="grid grid-cols-3 gap-2 mt-2">
+                    <div>
+                      <p className="text-slate-500">Entries</p>
+                      <p className="font-bold text-slate-900">{health.cache.size} / {health.cache.maxSize}</p>
+                    </div>
+                    <div>
+                      <p className="text-slate-500">TTL</p>
+                      <p className="font-bold text-slate-900">{Math.round(health.cache.ttl / 1000)}s</p>
+                    </div>
+                    <div>
+                      <p className="text-slate-500">Ultra Fast</p>
+                      <p className="font-bold text-emerald-600">{health.cache.ultraFast ? '✓' : '✗'}</p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      <Card className="border-amber-200 bg-gradient-to-br from-amber-50 to-white shadow-sm">
+        <CardHeader>
+          <CardTitle className="text-base flex items-center gap-2">
+            <div className="w-8 h-8 bg-amber-600 rounded-lg flex items-center justify-center">
+              <Flame className="w-4 h-4 text-white" />
+            </div>
+            Firebase Setup Reference
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <ol className="space-y-2 text-sm">
+            <li className="flex gap-3">
+              <span className="flex-shrink-0 w-6 h-6 bg-amber-600 text-white rounded-full flex items-center justify-center text-xs font-bold">1</span>
+              <div>
+                <p className="font-medium text-slate-900">Create Firebase Project</p>
+                <p className="text-xs text-slate-600">
+                  <a href="https://console.firebase.google.com" target="_blank" rel="noreferrer" className="text-amber-600 hover:underline inline-flex items-center gap-0.5">
+                    console.firebase.google.com <ExternalLink className="w-3 h-3" />
+                  </a>
+                </p>
+              </div>
+            </li>
+            <li className="flex gap-3">
+              <span className="flex-shrink-0 w-6 h-6 bg-amber-600 text-white rounded-full flex items-center justify-center text-xs font-bold">2</span>
+              <div>
+                <p className="font-medium text-slate-900">Generate Service Account Key</p>
+                <p className="text-xs text-slate-600">Project settings → Service accounts → Generate new private key → Save JSON</p>
+              </div>
+            </li>
+            <li className="flex gap-3">
+              <span className="flex-shrink-0 w-6 h-6 bg-amber-600 text-white rounded-full flex items-center justify-center text-xs font-bold">3</span>
+              <div>
+                <p className="font-medium text-slate-900">Base64-encode the JSON</p>
+                <p className="text-xs text-slate-600 font-mono">base64 service-account.json | tr -d '\n'</p>
+              </div>
+            </li>
+            <li className="flex gap-3">
+              <span className="flex-shrink-0 w-6 h-6 bg-amber-600 text-white rounded-full flex items-center justify-center text-xs font-bold">4</span>
+              <div>
+                <p className="font-medium text-slate-900">Set FIREBASE_SERVICE_ACCOUNT_BASE64</p>
+                <p className="text-xs text-slate-600">In Render/Vercel dashboard, add environment variable</p>
+              </div>
+            </li>
+          </ol>
         </CardContent>
       </Card>
     </div>
@@ -551,9 +628,9 @@ function DataSettings() {
         <div className="bg-slate-50 rounded-lg p-3 text-xs text-slate-600 space-y-2">
           <p className="font-medium text-slate-700">Data Storage Info:</p>
           <p>All data is stored in Firebase Firestore (configured via FIREBASE_SERVICE_ACCOUNT_BASE64).</p>
-          <p>No local database - works on Render/Vercel free tier.</p>
+          <p>No local database — works on Render/Vercel free tier with Firestore free tier.</p>
           <p>Multi-device support: all devices share the same Firestore data.</p>
-          <p>To view raw data: open your Firebase Console → Firestore Database.</p>
+          <p>To view raw data: open your Firebase console → Firestore.</p>
         </div>
       </CardContent>
     </Card>
@@ -1027,23 +1104,30 @@ function SystemHealth() {
 /**
  * DesktopCloudConfigEditor — visible only when the app is running inside the
  * Electron desktop wrapper (runtimeConfigActive = true). Lets the user change
- * the Firebase credentials and PIN without reinstalling the .exe.
+ * the Firebase service-account credentials and PIN without reinstalling the
+ * .exe.
  *
  * Why this exists:
  *   - All add/edit/delete operations go through Firebase Firestore
- *   - On desktop, the credentials are stored in %APPDATA%/smartcomp/config.json
- *   - Same Firestore = same data on Mobile + Tablet + Browser + Desktop
+ *   - On desktop, the service-account is stored in %APPDATA%/smartcomp/config.json
+ *   - Same Firestore project = same data on Mobile + Tablet + Browser + Desktop
+ *   - Changing the credentials here instantly repoints this desktop to a
+ *     different Firestore project without a rebuild
  */
 function DesktopCloudConfigEditor() {
   const { toast } = useToast()
-  const [firebaseKey, setFirebaseKey] = useState('')
+  const [b64, setB64] = useState('')
   const [pin, setPin] = useState('')
   const [saving, setSaving] = useState(false)
   const [reveal, setReveal] = useState(false)
 
+  useEffect(() => {
+    // no-op — kept for future hooks
+  }, [])
+
   const handleSave = async () => {
-    if (!firebaseKey.trim()) {
-      toast({ title: 'Firebase key required', variant: 'destructive' })
+    if (!b64.trim()) {
+      toast({ title: 'Service account required', description: 'Paste the base64-encoded JSON.', variant: 'destructive' })
       return
     }
     if (pin && !/^\d{4,8}$/.test(pin)) {
@@ -1055,14 +1139,15 @@ function DesktopCloudConfigEditor() {
       const r = await fetch('/api/config', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ firebaseServiceAccountBase64: firebaseKey.trim(), appPin: pin.trim() }),
+        body: JSON.stringify({ firebaseServiceAccountBase64: b64.trim(), appPin: pin.trim() }),
       })
       const res = await r.json()
       if (res.success) {
         toast({
           title: 'Saved',
-          description: 'This desktop now points to the same Firebase Firestore as your other devices.',
+          description: 'This desktop now points to the same Firebase project as your other devices.',
         })
+        setB64('')
         setPin('')
         setTimeout(() => window.location.reload(), 800)
       } else {
@@ -1076,27 +1161,26 @@ function DesktopCloudConfigEditor() {
   }
 
   return (
-    <div className="bg-blue-50/60 border border-blue-200 rounded-xl p-4 space-y-3">
+    <div className="bg-amber-50/60 border border-amber-200 rounded-xl p-4 space-y-3">
       <div className="flex items-center gap-2">
-        <Cloud className="w-4 h-4 text-blue-600" />
-        <h3 className="text-sm font-semibold text-slate-900">Desktop Cloud Connection</h3>
-        <Badge variant="outline" className="ml-auto bg-blue-50 text-blue-700 border-blue-200 text-[10px]">
+        <Cloud className="w-4 h-4 text-amber-600" />
+        <h3 className="text-sm font-semibold text-slate-900">Desktop Firebase Connection</h3>
+        <Badge variant="outline" className="ml-auto bg-amber-50 text-amber-700 border-amber-200 text-[10px]">
           Desktop mode
         </Badge>
       </div>
       <p className="text-xs text-slate-600">
-        This desktop app talks to the same Firebase Firestore as your phone, tablet, and browser.
-        Paste a new Firebase service account key (base64) here if your credentials changed.
-        All add/edit/delete actions will sync live to every device.
+        This desktop app talks to the same Firebase Firestore project as your phone, tablet, and browser.
+        Paste a new base64-encoded service-account JSON here to repoint this device. All add/edit/delete
+        actions will sync live to every device.
       </p>
       <div className="space-y-2">
-        <Label className="text-xs font-medium text-slate-700">Firebase Service Account (base64)</Label>
-        <Input
-          type={reveal ? 'text' : 'password'}
-          value={firebaseKey}
-          onChange={(e) => setFirebaseKey(e.target.value)}
-          placeholder="base64-encoded-service-account-json"
-          className="h-9 text-xs font-mono"
+        <Label className="text-xs font-medium text-slate-700">Firebase Service Account (base64 JSON)</Label>
+        <textarea
+          value={b64}
+          onChange={(e) => setB64(e.target.value)}
+          placeholder="eyJ0eXBlIjoic2VydmljZV9hY2NvdW50IiwicHJvamVjdF9pZCI6InNtYXJ0Y29tcC1wcm9kIi..."
+          className="w-full min-h-[80px] rounded-md border border-slate-200 bg-white px-2 py-1.5 text-[10px] font-mono"
         />
         <div className="flex items-center gap-2">
           <Button
@@ -1124,7 +1208,7 @@ function DesktopCloudConfigEditor() {
           pattern="\d{4,8}"
         />
       </div>
-      <Button onClick={handleSave} disabled={saving} className="w-full h-9 bg-blue-600 hover:bg-blue-700 text-xs">
+      <Button onClick={handleSave} disabled={saving} className="w-full h-9 bg-amber-600 hover:bg-amber-700 text-xs">
         {saving ? (
           <><Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin" /> Saving...</>
         ) : (

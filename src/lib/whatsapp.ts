@@ -9,7 +9,7 @@ export interface WhatsAppMessage {
 
 // Generate wa.me link for opening WhatsApp with prefilled message
 export function generateWhatsAppLink(phone: string, message: string): string {
-  // Defensive: Firebase Firestore may store phone as a number, not a string.
+  // Defensive: Google Sheets may store phone as a number, not a string.
   // Coerce to string before calling .replace(). Also handle null/undefined.
   const phoneStr = String(phone ?? '')
   const cleanPhone = phoneStr.replace(/[^\d]/g, '')

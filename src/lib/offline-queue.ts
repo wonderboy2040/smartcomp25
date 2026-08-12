@@ -4,7 +4,7 @@
  * Features:
  * - Client-side number generation (instant, no server roundtrip for number)
  * - IndexedDB queue for offline support
- * - Instant return with temp ID, background sync to Firebase
+ * - Instant return with temp ID, background sync to Google Sheets
  * - Rollback on failure with retry
  * 
  * This makes Add Item, Invoice, Quotation feel INSTANT (<100ms) even if server takes 2-4 sec

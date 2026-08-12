@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect, useMemo, useCallback } from 'react'
-import { useFetch, apiPost, apiPut, apiDelete, invalidate } from '@/lib/api'
+import { useFetch, apiPost, apiPut, apiDelete, invalidate, asArray } from '@/lib/api'
 import { safeJsonParse } from '@/lib/utils'
 import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -310,21 +310,24 @@ function JobDetailDialog({ job, onClose, onUpdated, onOpenInvoice, onOpenWhatsAp
   const [showComplete, setShowComplete] = useState(false)
   const [deductStock, setDeductStock] = useState(true)
 
-  // Server-side search — only fetches when the user types (capped at 30 results).
-  const stockItemsUrl = debouncedStockSearch
-    ? `/api/items?search=${encodeURIComponent(debouncedStockSearch)}&limit=30`
-    : '/api/items?limit=30'
-  const { data: stockItems } = useFetch<any[]>(stockItemsUrl, undefined)
+  // Full catalogue, fetched once from the same URL every other panel uses so
+  // it comes straight from cache. Filtering is local and shows EVERY match —
+  // this list used to be capped at 10 rows (15 when searching), which made
+  // most of the stock look missing when picking parts for a job.
+  const { data: stockItemsRaw } = useFetch<any[]>('/api/items', undefined)
+  const stockItems = useMemo(() => asArray<any>(stockItemsRaw), [stockItemsRaw])
 
   const filteredStock = useMemo(() => {
-    if (!stockSearch) return (stockItems || []).slice(0, 10)
-    const q = stockSearch.toLowerCase()
-    return (stockItems || []).filter((it: any) =>
+    const q = debouncedStockSearch.trim().toLowerCase()
+    if (!q) return stockItems
+    return stockItems.filter((it: any) =>
       String(it.name || '').toLowerCase().includes(q) ||
       String(it.sku || '').toLowerCase().includes(q) ||
-      String(it.category || '').toLowerCase().includes(q)
-    ).slice(0, 15)
-  }, [stockItems, stockSearch])
+      String(it.category || '').toLowerCase().includes(q) ||
+      String(it.brand || '').toLowerCase().includes(q) ||
+      String(it.hsnCode || '').toLowerCase().includes(q)
+    )
+  }, [stockItems, debouncedStockSearch])
 
   const partsTotalCost = partsUsed.reduce((s, p) => s + (Number(p.costPrice) || 0) * (Number(p.qty) || 1), 0)
   const partsTotalSell = partsUsed.reduce((s, p) => s + (Number(p.sellPrice) || 0) * (Number(p.qty) || 1), 0)
@@ -524,8 +527,12 @@ function JobDetailDialog({ job, onClose, onUpdated, onOpenInvoice, onOpenWhatsAp
               </div>
 
               {showStock && (
-                <div className="border border-slate-200 rounded-xl max-h-48 overflow-y-auto bg-white shadow-sm">
-                  {filteredStock.length === 0 ? <div className="p-3 text-center text-xs text-slate-500">No stock found for "{stockSearch}"</div> : filteredStock.map((item: any) => (
+                <div className="border border-slate-200 rounded-xl max-h-72 overflow-y-auto bg-white shadow-sm">
+                  {filteredStock.length === 0 ? (
+                    <div className="p-3 text-center text-xs text-slate-500">
+                      {stockSearch ? `No stock matches "${stockSearch}"` : 'No stock items yet — add them in the Stock panel'}
+                    </div>
+                  ) : filteredStock.map((item: any) => (
                     <div key={item.id} className="flex items-center gap-2 p-2.5 hover:bg-blue-50 cursor-pointer border-b last:border-0 transition-colors" onClick={() => handleSelectStock(item)}>
                       <div className="w-10 h-10 rounded-lg bg-white border flex items-center justify-center flex-shrink-0"><Package className="w-5 h-5 text-slate-400" /></div>
                       <div className="flex-1 min-w-0">
@@ -536,7 +543,7 @@ function JobDetailDialog({ job, onClose, onUpdated, onOpenInvoice, onOpenWhatsAp
                       <Plus className="w-4 h-4 text-blue-600 flex-shrink-0" />
                     </div>
                   ))}
-                  <div className="p-2 bg-slate-50 text-center"><p className="text-[10px] text-slate-500">Showing {filteredStock.length} of {stockItems?.length || 0} stock items - Click to select</p></div>
+                  <div className="p-2 bg-slate-50 text-center sticky bottom-0"><p className="text-[10px] text-slate-500">Showing all {filteredStock.length} of {stockItems.length} stock items - Click to select</p></div>
                 </div>
               )}
 

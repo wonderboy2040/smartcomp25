@@ -27,6 +27,36 @@ async function getShopFast(): Promise<any> {
   return shop
 }
 
+/**
+ * Short content fingerprint of the source row.
+ *
+ * The cache used to be keyed on id + template + banner alone, so for ten
+ * minutes after an edit the customer was handed the PRE-EDIT PDF. Neither
+ * Invoices nor Quotations has an `updatedAt` column, so fingerprint the row
+ * itself — any saved change produces a different key.
+ */
+function rowFingerprint(row: any): string {
+  let h = 0
+  const s = JSON.stringify(row ?? {})
+  for (let i = 0; i < s.length; i++) h = (Math.imul(h, 31) + s.charCodeAt(i)) | 0
+  return (h >>> 0).toString(36)
+}
+
+/**
+ * The stored grand total is what the shop committed to and what amountDue was
+ * derived from — including any round-off, which has no column of its own.
+ * Re-deriving it from the line items would print a total the books disagree
+ * with, so trust the row and surface the difference as its own line.
+ */
+function applyStoredTotal(calc: any, storedGrandTotal: number) {
+  const stored = Number(storedGrandTotal) || 0
+  if (stored <= 0) return { calc, roundOff: 0 }
+  const diff = Number((stored - calc.grandTotal).toFixed(2))
+  // Ignore tiny floating point differences (< 1 paisa)
+  if (Math.abs(diff) < 0.01) return { calc, roundOff: 0 }
+  return { calc: { ...calc, grandTotal: stored }, roundOff: diff }
+}
+
 export async function GET(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
     if (!isConfigured()) {
@@ -39,11 +69,28 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
 
     const shop = await getShopFast()
 
-    const templateId = url.searchParams.get('template') || String(shop.pdfTemplate || '') || 'tally-classic'
-    const bannerVariant = url.searchParams.get('banner') || String(shop.adBannerVariant || '') || 'flyer'
-    const gstMode = (url.searchParams.get('gstMode') === 'non-gst' ? 'non-gst' : 'gst') as 'gst' | 'non-gst'
+    // Load the source row BEFORE the cache lookup: the document's own template
+    // choice and its content fingerprint are both part of the cache key.
+    const sheetName = type === 'quotation' ? 'Quotations' : type === 'service' ? 'Jobs' : 'Invoices'
+    const row = await getRow<any>(sheetName, id)
+    if (!row) return NextResponse.json({ error: 'Not found' }, { status: 404 })
 
-    const cacheKey = `${id}:${type}:${templateId}:${bannerVariant}:${gstMode}`
+    // The template picked when the document was created is stored on the row.
+    // It used to be ignored entirely, so every document printed as tally-classic.
+    const templateId =
+      url.searchParams.get('template') ||
+      String(row.template || '') ||
+      String(shop.pdfTemplate || '') ||
+      'tally-classic'
+    const bannerVariant = url.searchParams.get('banner') || String(shop.adBannerVariant || '') || 'flyer'
+    const gstModeParam = url.searchParams.get('gstMode')
+    const gstMode = (
+      gstModeParam
+        ? gstModeParam === 'non-gst' ? 'non-gst' : 'gst'
+        : String(row.gstMode || '') === 'non-gst' ? 'non-gst' : 'gst'
+    ) as 'gst' | 'non-gst'
+
+    const cacheKey = `${id}:${type}:${templateId}:${bannerVariant}:${gstMode}:${rowFingerprint(row)}`
     const cached = PDF_CACHE.get(cacheKey)
     if (cached && cached.expires > Date.now()) {
       return new NextResponse(cached.buffer, {
@@ -59,15 +106,17 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
     let filename = `${type}-${id}.pdf`
 
     if (type === 'invoice') {
-      const invoice = await getRow<any>('Invoices', id)
-      if (!invoice) return NextResponse.json({ error: 'Not found' }, { status: 404 })
+      const invoice = row
 
       const items = safeJsonParse<any[]>(invoice.itemsJson, []) as LineItem[]
-      const calc = computeInvoice(items, {
-        courierCharges: Number(invoice.courierCharges) || 0,
-        otherCharges: Number(invoice.otherCharges) || 0,
-        discount: Number(invoice.discount) || 0,
-      })
+      const { calc, roundOff } = applyStoredTotal(
+        computeInvoice(items, {
+          courierCharges: Number(invoice.courierCharges) || 0,
+          otherCharges: Number(invoice.otherCharges) || 0,
+          discount: Number(invoice.discount) || 0,
+        }),
+        invoice.grandTotal,
+      )
 
       filename = `Invoice-${invoice.number || id}.pdf`
 
@@ -96,6 +145,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
           state: '',
         },
         calc,
+        roundOff,
         notes: String(invoice.notes || ''),
         terms: String(shop.termsInvoice || ''),
         amountPaid: Number(invoice.amountPaid) || 0,
@@ -109,15 +159,17 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
         gstMode,
       })
     } else if (type === 'quotation') {
-      const q = await getRow<any>('Quotations', id)
-      if (!q) return NextResponse.json({ error: 'Not found' }, { status: 404 })
+      const q = row
 
       const items = safeJsonParse<any[]>(q.itemsJson, []) as LineItem[]
-      const calc = computeInvoice(items, {
-        courierCharges: Number(q.courierCharges) || 0,
-        otherCharges: Number(q.otherCharges) || 0,
-        discount: Number(q.discount) || 0,
-      })
+      const { calc, roundOff } = applyStoredTotal(
+        computeInvoice(items, {
+          courierCharges: Number(q.courierCharges) || 0,
+          otherCharges: Number(q.otherCharges) || 0,
+          discount: Number(q.discount) || 0,
+        }),
+        q.grandTotal,
+      )
 
       filename = `Quotation-${q.number || id}.pdf`
 
@@ -147,6 +199,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
           state: '',
         },
         calc,
+        roundOff,
         notes: String(q.notes || ''),
         terms: String(shop.termsQuotation || ''),
         docType: 'quotation',
@@ -156,8 +209,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
         gstMode,
       })
     } else if (type === 'service') {
-      const job = await getRow<any>('Jobs', id)
-      if (!job) return NextResponse.json({ error: 'Service job not found' }, { status: 404 })
+      const job = row
 
       const partsUsed = safeJsonParse<any[]>(job.partsUsedJson || job.partsUsed || '[]', [])
       const lineItems: LineItem[] = [

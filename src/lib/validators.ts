@@ -1,6 +1,6 @@
 /**
  * Zod validators for all API entities - v3.0 upgrade
- * Ensures data integrity before hitting Firebase Firestore
+ * Ensures data integrity before hitting Google Sheets
  */
 import { z } from 'zod'
 
@@ -19,6 +19,7 @@ export const itemSchema = z.object({
   hsnCode: z.string().max(20).optional(),
   supplierId: z.string().max(100).optional(),
   warrantyDays: z.number().min(0).optional(),
+  isDigitalProduct: z.boolean().optional(),
 })
 
 export const customerSchema = z.object({

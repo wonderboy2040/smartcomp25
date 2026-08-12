@@ -1,8 +1,8 @@
 {
   "name": "smartcomp",
   "private": true,
-  "version": "10.1.2-firebase",
-  "description": "SmartComp — Sales & Service Panel v10.1 Firebase Edition. Now backed by Firebase Firestore (ultra fast, free tier) instead of Google Sheets. Same UI, same features, ~50x faster reads.",
+  "version": "12.0.0-firebase-only",
+  "description": "SmartComp — Sales & Service Panel v12.0 Firebase-only Edition. Merged with latest smartcomp features (item units, digital keys, round-off, anti-clobber pending creates, stale-cache fallback). Backed by Firebase Firestore (ultra fast, in-process SDK, sub-100ms reads, sub-1ms cache hits).",
   "keywords": [
     "shop management",
     "gst billing",

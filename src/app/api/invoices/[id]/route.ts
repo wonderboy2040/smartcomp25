@@ -43,7 +43,12 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
     const rawItems = Array.isArray(body.items)
       ? body.items
       : safeJsonParse<any[]>(existing.itemsJson, [])
+    // Spread the incoming line FIRST, then coerce the numeric/boolean fields.
+    // The old whitelist silently dropped description, specification, serial
+    // numbers and digital product keys, so editing an invoice erased the very
+    // things the customer needs on the printed copy.
     const newItems = rawItems.map((i: any) => ({
+      ...i,
       itemId: i.itemId,
       name: i.name,
       sku: i.sku || '',
@@ -54,6 +59,8 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
       gstApplicable: i.gstApplicable === true || i.gstApplicable === 'true',
       gstRate: Number(i.gstRate) || 0,
       costPrice: Number(i.costPrice) || 0,
+      serialNumbers: Array.isArray(i.serialNumbers) ? i.serialNumbers.filter(Boolean).map(String) : [],
+      productKeys: Array.isArray(i.productKeys) ? i.productKeys.filter(Boolean).map(String) : [],
     }))
 
     // Recompute totals
@@ -61,15 +68,21 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
       courierCharges: Number(body.courierCharges) || 0,
       otherCharges: Number(body.otherCharges) || 0,
       discount: Number(body.discount) || 0,
+      roundOff: body.roundOff === true,
     })
 
     // TRANSACTIONAL stock update: compute net delta per itemId
+    // Only adjust stock if items actually changed
     const delta = new Map<string, number>()
     for (const item of oldItems) {
-      if (item.itemId) delta.set(String(item.itemId), (delta.get(String(item.itemId)) || 0) + (Number(item.quantity) || 0))
+      if (item.itemId && Number(item.quantity) > 0) {
+        delta.set(String(item.itemId), (delta.get(String(item.itemId)) || 0) + (Number(item.quantity) || 0))
+      }
     }
     for (const item of newItems) {
-      if (item.itemId) delta.set(String(item.itemId), (delta.get(String(item.itemId)) || 0) - (Number(item.quantity) || 0))
+      if (item.itemId && Number(item.quantity) > 0) {
+        delta.set(String(item.itemId), (delta.get(String(item.itemId)) || 0) - (Number(item.quantity) || 0))
+      }
     }
 
     // PERFORMANCE: Use bulkUpdate for stock adjustments
@@ -134,18 +147,44 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
       } catch {}
     }
 
-    // Adjust customer credit balance
+    // The form only sends customerId. When the user picks a DIFFERENT customer
+    // while editing, the stored name/phone/GSTIN belonged to the old one and
+    // the invoice printed the wrong party — resolve the row and refresh them.
+    const oldCustomerId = String(existing.customerId || '')
+    const newCustomerId = String(body.customerId || oldCustomerId)
+    let customerFields = {
+      customerName: String(body.customerName || existing.customerName || ''),
+      customerPhone: String(body.customerPhone || existing.customerPhone || ''),
+      customerGstin: String(body.customerGstin || existing.customerGstin || ''),
+    }
+    if (newCustomerId && newCustomerId !== oldCustomerId) {
+      const picked = await getRow<any>('Customers', newCustomerId).catch(() => null)
+      if (picked) {
+        customerFields = {
+          customerName: String(picked.name || ''),
+          customerPhone: String(picked.phone || ''),
+          customerGstin: String(picked.gstNumber || ''),
+        }
+      }
+    }
+
+    // Adjust customer credit balance. If the invoice moved to another customer,
+    // the whole outstanding moves with it instead of being netted on the old one.
     const oldDue = Number(existing.amountDue) || 0
     const newDue = computed.grandTotal - newPaid
-    const dueDiff = newDue - oldDue
-    if (dueDiff !== 0 && existing.customerId) {
-      const customer = await getRow<any>('Customers', String(existing.customerId))
-      if (customer) {
-        const currentCredit = Number(customer.creditBalance) || 0
-        await updateRow('Customers', String(existing.customerId), {
-          creditBalance: Math.max(0, currentCredit + dueDiff),
-        })
-      }
+    const adjustCredit = async (customerId: string, delta: number) => {
+      if (!customerId || delta === 0) return
+      const customer = await getRow<any>('Customers', customerId).catch(() => null)
+      if (!customer) return
+      await updateRow('Customers', customerId, {
+        creditBalance: Math.max(0, (Number(customer.creditBalance) || 0) + delta),
+      })
+    }
+    if (newCustomerId !== oldCustomerId) {
+      await adjustCredit(oldCustomerId, -oldDue)
+      await adjustCredit(newCustomerId, Math.max(0, newDue))
+    } else {
+      await adjustCredit(oldCustomerId, newDue - oldDue)
     }
 
     // Recompute paymentStatus
@@ -153,10 +192,8 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
 
     // Update invoice
     const updated = await updateRow('Invoices', id, {
-      customerId: String(body.customerId || existing.customerId || ''),
-      customerName: String(body.customerName || existing.customerName || ''),
-      customerPhone: String(body.customerPhone || existing.customerPhone || ''),
-      customerGstin: String(body.customerGstin || existing.customerGstin || ''),
+      customerId: newCustomerId,
+      ...customerFields,
       date: body.date || existing.date,
       itemsJson: JSON.stringify(computed.items),
       subtotal: computed.subtotal,

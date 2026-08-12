@@ -1,13 +1,10 @@
-# Render deployment config - Smart Computers Panel v10.1 (Firebase Edition)
-#
-# WHAT CHANGED: Backend moved from Google Sheets (slow, 6-8s cold starts) to
-# Firebase Firestore (in-process SDK, <100ms reads, free tier 50K reads/day).
-# The frontend, all /api routes, the PIN gate, and the WhatsApp/AI features
-# are UNCHANGED — only the data layer was swapped.
+# Render deployment config - Smart Computers Panel (Firebase-only Edition v12.0)
+# No database needed! Data is stored in Firebase Firestore via the in-process firebase-admin SDK.
 #
 # DATA PROTECTION (built-in, always on):
-#   - DELETE = soft-delete (docs marked deleted=true, never removed)
+#   - DELETE = soft-delete (rows marked deleted=true, never removed)
 #   - replaceAll = permanently blocked
+#   - Schema migration = data-safe (appends columns, never clears)
 #
 # PIN PROTECTION (optional, set APP_PIN to enable):
 #   - 4-digit numeric PIN required to access the panel
@@ -22,7 +19,7 @@ services:
     branch: main
     rootDir: .
     # IMPORTANT: Use npm with --include=dev for tailwindcss build deps
-    buildCommand: ELECTRON_SKIP_BINARY_DOWNLOAD=1 npm install --include=dev && npm run build
+    buildCommand: npm install --include=dev && npm run build
     # Use the standalone server directly — `next start` does NOT work with
     # output: 'standalone' (Next.js 15 logs a warning and routes can misbehave).
     # The standalone bundle includes only the production deps needed to run,
@@ -38,49 +35,21 @@ services:
         value: production
       - key: NEXT_TELEMETRY_DISABLED
         value: "1"
-      - key: ELECTRON_SKIP_BINARY_DOWNLOAD
-        value: "1"
       - key: NPM_CONFIG_PRODUCTION
         value: "false"
       - key: PORT
         value: "10000"
-      # CRITICAL FIX for 502 Bad Gateway on Render:
-      # Next.js standalone server.js binds to process.env.HOSTNAME.
-      # Render automatically sets HOSTNAME to the container's internal
-      # hostname (e.g. abc123.render.internal), which makes the server
-      # bind to the wrong interface — Render's proxy then can't reach it
-      # and returns 502 on every path (including /api/health).
-      # Forcing HOSTNAME=0.0.0.0 makes the server listen on all interfaces.
-      - key: HOSTNAME
-        value: "0.0.0.0"
-      # ====================================================================
-      # BACKEND — Firebase Firestore (RECOMMENDED, ultra fast, free tier)
-      # ====================================================================
-      # Option A (preferred): paste the entire service-account JSON as base64.
-      #   Generate on your laptop:
-      #     base64 -w0 path/to/service-account.json
-      #   Then paste the output as the value of FIREBASE_SERVICE_ACCOUNT_BASE64.
-      #   This is the easiest path on Render — one env var, no escaping issues.
+      # REQUIRED: Set this in Render dashboard to your Firebase service-account
+      # JSON, base64-encoded (run `base64 -w0 service-account.json`).
       - key: FIREBASE_SERVICE_ACCOUNT_BASE64
         sync: false
-      # Option B (alternative): set these three separately. Use this if your
-      # Render plan restricts the size of a single env var or you prefer
-      # individual fields. NOTE: FIREBASE_PRIVATE_KEY must contain literal
-      # "\n" escapes between lines (Render preserves them as-is).
-      - key: FIREBASE_PROJECT_ID
-        sync: false
-      - key: FIREBASE_CLIENT_EMAIL
-        sync: false
-      - key: FIREBASE_PRIVATE_KEY
-        sync: false
-      # ====================================================================
-      # AUTH — 4-digit PIN to lock the panel (optional but recommended)
-      # ====================================================================
+      # OPTIONAL BUT RECOMMENDED: 4-digit PIN to lock the panel.
+      # When set, ALL /api/* routes (except public ones in proxy.ts) require
+      # the smartcomp_auth cookie issued by /api/auth/login.
+      # ALSO: this PIN is checked by the Next.js server (proxy.ts) for defense-in-depth.
       - key: APP_PIN
         sync: false
-      # ====================================================================
-      # OPTIONAL SECRETS — only set the ones you actually use
-      # ====================================================================
+      # REQUIRED IN PROD if you use the corresponding webhooks/crons:
       - key: CRON_SECRET
         sync: false
       - key: RAZORPAY_WEBHOOK_SECRET
@@ -102,18 +71,9 @@ services:
       # OPTIONAL: public base URL of the deployed app (used in track URLs etc.)
       - key: NEXT_PUBLIC_BASE_URL
         sync: false
-      # ====================================================================
-      # LEGACY (only if you haven't migrated to Firebase yet)
-      # ====================================================================
-      # If FIREBASE_* is NOT set, the app falls back to APPS_SCRIPT_URL.
-      # Leave this unset once you've migrated to Firebase.
-      - key: APPS_SCRIPT_URL
-        sync: false
 
-# Note: No database service needed on Render — Firestore is hosted by Google
-# and accessed via the firebase-admin SDK. The free Spark tier gives you
-# 50,000 reads/day, 20,000 writes/day, 20,000 deletes/day, 1 GiB storage.
-# That's plenty for a small shop — 200 invoices refreshed 100x/day = 20K reads.
+# Note: No database service needed!
+# All data is stored in your Firebase Firestore database.
 #
 # Node version is auto-detected from .nvmrc file (set to 20.11.0)
 # and package.json engines field (node: 20.x)

@@ -9,12 +9,13 @@
  *   3. Wait for http://localhost:PORT to respond
  *   4. Open a BrowserWindow pointing at that URL
  *
- * Cloud sync:
- *   - The .exe does NOT bake in FIREBASE_SERVICE_ACCOUNT_BASE64. The user pastes
- *     it once via the in-app SetupWizard (which calls POST /api/config).
+ * Cloud sync (v12.0 — Firebase only):
+ *   - The .exe does NOT bake in Firebase credentials. The user pastes a
+ *     base64-encoded service-account JSON once via the in-app SetupWizard
+ *     (which calls POST /api/config with the credentials).
  *   - From then on, every add/edit/delete in the desktop app hits the same
- *     Firebase Firestore as Mobile / Tablet / Browser, so all devices
- *     stay in sync via the same Firestore database.
+ *     Firebase Firestore project as Mobile / Tablet / Browser, so all
+ *     devices stay in sync via the same Firestore database.
  *
  * v2 FIXES:
  *   - Detects Next.js port from BOTH stdout and stderr
@@ -390,7 +391,7 @@ function showErrorWindow(errorMessage) {
 </head>
 <body>
   <h2>Failed to start Smart Computers</h2>
-  <p>The desktop app couldn't start the local Next.js server. Don't worry — your data is safe in your Firebase.</p>
+  <p>The desktop app couldn't start the local Next.js server. Don't worry — your data is safe in your Google Sheet.</p>
   <div class="box">${safeMsg}</div>
   <div class="log-path">
     <strong>Log file:</strong><br>

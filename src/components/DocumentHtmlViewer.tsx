@@ -69,17 +69,14 @@ export function DocumentHtmlViewer({ docId, docType = 'invoice', title, onClose,
   useEffect(() => {
     setIframeLoaded(false)
     setIframeError(false)
-    // Timeout for slow loads
+    // Timeout for slow loads — force show iframe even if load event didn't fire
     loadTimerRef.current = setTimeout(() => {
-      if (!iframeLoaded) {
-        // Still show iframe even if load event didn't fire (for cached responses)
-        setIframeLoaded(true)
-      }
+      setIframeLoaded(true)
     }, 5000)
     return () => {
       if (loadTimerRef.current) clearTimeout(loadTimerRef.current)
     }
-  }, [iframeUrl])
+  }, [iframeUrl]) // eslint-disable-line
 
   const handleIframeLoad = useCallback(() => {
     if (loadTimerRef.current) clearTimeout(loadTimerRef.current)

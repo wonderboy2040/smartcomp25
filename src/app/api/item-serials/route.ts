@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { listRows, createRow } from '@/lib/sheets-client'
+import { unitTypeOf } from '@/lib/item-units'
 
 import { writeLimiter, getClientIp } from '@/lib/rate-limit'
 
@@ -15,9 +16,12 @@ export async function GET(req: NextRequest) {
     const statusFilter = url.searchParams.get('status')
     const search = url.searchParams.get('search')
 
+    const typeFilter = url.searchParams.get('type')
+
     let serials = await listRows<any>('ItemSerials')
     if (itemIdFilter) serials = serials.filter((s) => String(s.itemId) === itemIdFilter)
     if (statusFilter) serials = serials.filter((s) => String(s.status) === statusFilter)
+    if (typeFilter) serials = serials.filter((s) => unitTypeOf(s) === (typeFilter === 'key' ? 'key' : 'serial'))
     if (search) {
       const q = search.toLowerCase()
       serials = serials.filter((s) =>
@@ -56,6 +60,7 @@ export async function GET(req: NextRequest) {
     const result = serials.map((s) => ({
       ...s,
       serialNumber: String(s?.serialNumber || ''),
+      type: unitTypeOf(s),
       itemName: String(s?.itemName || ''),
       status: String(s?.status || 'in_stock'),
       customerName: String(s?.customerName || ''),
@@ -98,6 +103,7 @@ export async function POST(req: NextRequest) {
         itemId: String(body.itemId || ''),
         itemName: String(body.itemName || ''),
         serialNumber: String(sn).trim(),
+        type: String(body.type || '').toLowerCase() === 'key' ? 'key' : 'serial',
         status: 'in_stock',
         invoiceId: '',
         invoiceNumber: '',

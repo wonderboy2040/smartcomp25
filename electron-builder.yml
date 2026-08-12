@@ -76,9 +76,6 @@ extraResources:
   - from: public
     to: next-standalone/public
     filter: ["**/*"]
-  - from: apps-script
-    to: next-standalone/apps-script
-    filter: ["**/*"]
 
 # Include install/uninstall batch scripts in the installer too.
 # These files are optional — if the build/ directory is missing, the

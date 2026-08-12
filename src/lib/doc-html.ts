@@ -173,6 +173,32 @@ function escapeHtml(s: any): string {
     .replace(/'/g, '&#39;')
 }
 
+/**
+ * Serial numbers and digital product keys handed over with a line item.
+ *
+ * These are the customer's proof of what they received — a software licence is
+ * worthless to them if the key is not on the bill — so they print directly
+ * under the item name in every template and in both GST and non-GST layouts.
+ */
+function renderUnitLines(item: any): string {
+  const keys: string[] = Array.isArray(item?.productKeys) ? item.productKeys.filter(Boolean) : []
+  const serials: string[] = Array.isArray(item?.serialNumbers) ? item.serialNumbers.filter(Boolean) : []
+  let html = ''
+  if (keys.length > 0) {
+    html += `<div style="font-size:9px;color:#92400e;margin-top:2px;">
+      <span style="font-weight:700;">Product Key${keys.length > 1 ? 's' : ''}:</span>
+      <span style="font-family:monospace;letter-spacing:0.2px;">${keys.map((k) => escapeHtml(k)).join('<br/>')}</span>
+    </div>`
+  }
+  if (serials.length > 0) {
+    html += `<div style="font-size:9px;color:#1e3a8a;margin-top:2px;">
+      <span style="font-weight:700;">Serial No${serials.length > 1 ? 's' : ''}:</span>
+      <span style="font-family:monospace;letter-spacing:0.2px;">${serials.map((s) => escapeHtml(s)).join('<br/>')}</span>
+    </div>`
+  }
+  return html
+}
+
 function formatDate(d: Date | string): string {
   return new Date(d).toLocaleDateString('en-IN', {
     day: '2-digit',
@@ -312,6 +338,7 @@ export async function generateInvoiceHtml(
             <div class="iname">${escapeHtml(item.name)}${item.sku ? ` <span style="font-size:8px;color:#94a3b8;">SKU: ${escapeHtml(item.sku)}</span>` : ''}</div>
             ${(item as any).description ? `<div style="font-size:9px;color:#475569;margin-top:2px;">${escapeHtml((item as any).description)}</div>` : ''}
             ${(item as any).specification ? `<div style="font-size:9px;color:#1e40af;margin-top:1px;font-style:italic;">Spec: ${escapeHtml((item as any).specification)}</div>` : ''}
+            ${renderUnitLines(item)}
           </td>
           <td class="center">${item.quantity}</td>
           <td class="right">${formatCurrency(item.rate).replace('Rs. ', '')}</td>
@@ -328,6 +355,7 @@ export async function generateInvoiceHtml(
             <div class="iname">${escapeHtml(item.name)}${item.sku ? ` <span style="font-size:8px;color:#94a3b8;">SKU: ${escapeHtml(item.sku)}</span>` : ''}</div>
             ${(item as any).description ? `<div style="font-size:9px;color:#475569;margin-top:2px;">${escapeHtml((item as any).description)}</div>` : ''}
             ${(item as any).specification ? `<div style="font-size:9px;color:#1e40af;margin-top:1px;font-style:italic;">Spec: ${escapeHtml((item as any).specification)}</div>` : ''}
+            ${renderUnitLines(item)}
           </td>
           <td class="center">${escapeHtml(item.hsnCode || '-')}</td>
           <td class="center">${item.quantity}</td>

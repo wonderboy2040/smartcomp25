@@ -55,7 +55,7 @@ export function WhatsAppPanel() {
 
   // Auto-refresh every 30s when on the enquiries tab AND the page is visible,
   // so incoming webhook replies show up live. Paused when tab is hidden to
-  // save battery and avoid hammering Firebase in the background.
+  // save battery and avoid hammering Apps Script in the background.
   useEffect(() => {
     if (tab !== 'enquiries') return
     let timer: ReturnType<typeof setInterval> | null = null
@@ -146,7 +146,7 @@ export function WhatsAppPanel() {
         // wa.me mode: generate links CLIENT-SIDE instantly and show a dialog
         // with all supplier links as buttons. This fixes:
         //   1. Popup blocking (browser blocks multiple window.open in a loop)
-        //   2. Slow loading (no need to wait for Firebase POST before opening links)
+        //   2. Slow loading (no need to wait for Apps Script POST before opening links)
         //   3. "Only 1 supplier gets message" bug
         const linksForSuppliers = selectedSuppliers.map((s) => {
           const phone = String(s.whatsappNumber || s.phone || '')
