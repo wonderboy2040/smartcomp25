@@ -315,6 +315,13 @@ export function sanitizeRowData(data: SheetRow): SheetRow {
   if (!data || typeof data !== 'object') return data
   const sanitized: any = {}
   for (const [key, value] of Object.entries(data)) {
+    // STRIP undefined values — Firestore throws "Cannot use 'undefined' as a
+    // Firestore value" if they sneak through. This was the root cause of the
+    // "invoice/quotation auto-deletes after create" bug: the API route didn't
+    // pass customerName/Phone/Gstin, so they were undefined, the Firestore
+    // write threw, the POST returned 500, and the optimistic temp item was
+    // wiped by the next refetch.
+    if (value === undefined) continue
     if (typeof value === 'string') {
       sanitized[key] = sanitizeString(value)
     } else if (Array.isArray(value)) {
@@ -900,10 +907,10 @@ export async function createInvoiceFull(data: {
   const invoiceRow: any = {
     id: invoiceId,
     number: invoiceNumber,
-    customerId: sanitized.customerId,
-    customerName: sanitized.customerName,
-    customerPhone: sanitized.customerPhone,
-    customerGstin: sanitized.customerGstin,
+    customerId: sanitized.customerId || '',
+    customerName: sanitized.customerName || '',
+    customerPhone: sanitized.customerPhone || '',
+    customerGstin: sanitized.customerGstin || '',
     date: sanitized.date || new Date().toISOString(),
     itemsJson: sanitized.itemsJson || '[]',
     serialsJson: sanitized.serialsJson || '[]',
@@ -1000,10 +1007,10 @@ export async function createQuotationFull(data: any): Promise<any> {
   const row: any = {
     id: quotationId,
     number: quotationNumber,
-    customerId: sanitized.customerId,
-    customerName: sanitized.customerName,
-    customerPhone: sanitized.customerPhone,
-    customerGstin: sanitized.customerGstin,
+    customerId: sanitized.customerId || '',
+    customerName: sanitized.customerName || '',
+    customerPhone: sanitized.customerPhone || '',
+    customerGstin: sanitized.customerGstin || '',
     date: sanitized.date || new Date().toISOString(),
     validTill: sanitized.validTill || '',
     itemsJson: sanitized.itemsJson || '[]',

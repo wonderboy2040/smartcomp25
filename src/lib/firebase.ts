@@ -190,6 +190,16 @@ export async function getDb(): Promise<Firestore | null> {
       cachedApp = adminApp.getApps()[0] || adminApp.initializeApp({ credential: adminApp.cert(sa as any) })
     }
     cachedDb = adminFirestore.getFirestore(cachedApp as any)
+    // CRITICAL: ignoreUndefinedProperties prevents Firestore from throwing
+    // "Cannot use 'undefined' as a Firestore value" when a field is undefined.
+    // Without this, creating an invoice/quotation fails silently (POST 500),
+    // the optimistic temp item is shown briefly, then wiped on the next
+    // refetch — looking like the item "auto-deletes".
+    try {
+      ;(cachedDb as any).settings({ ignoreUndefinedProperties: true })
+    } catch {
+      // settings() can throw if already called — safe to ignore
+    }
     initError = null
     loadedAt = now
     return cachedDb

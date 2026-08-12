@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { listRows, createQuotationUltra } from '@/lib/sheets-client'
+import { listRows, createQuotationUltra, getRow } from '@/lib/sheets-client'
 import { computeInvoice, type LineItem } from '@/lib/calc'
 import { apiLimiter, writeLimiter, getClientIp } from '@/lib/rate-limit'
 
@@ -80,9 +80,22 @@ export async function POST(req: NextRequest) {
 
     const calc = computeInvoice(items as LineItem[], { courierCharges, otherCharges, discount, roundOff: roundOff === true })
 
+    // Fetch customer info so the quotation row has the customer's name, phone,
+    // and GSTIN. Without this, createQuotationFull receives undefined for these
+    // fields — Firestore throws "Cannot use 'undefined' as a Firestore value"
+    // and the POST fails with 500, causing the optimistic temp item to be
+    // wiped on the next refetch (the "auto-delete" bug).
+    const customer = await getRow<any>('Customers', String(customerId))
+    const customerName = customer?.name || customer?.customerName || ''
+    const customerPhone = customer?.phone || customer?.customerPhone || ''
+    const customerGstin = customer?.gstNumber || customer?.customerGstin || ''
+
     // ULTRA-ULTRA FAST v6.0: Single call - server fetches customer + generates number
     const result = await createQuotationUltra({
       customerId,
+      customerName,
+      customerPhone,
+      customerGstin,
       itemsJson: JSON.stringify(calc.items),
       subtotal: calc.subtotal,
       gstAmount: calc.gstAmount,

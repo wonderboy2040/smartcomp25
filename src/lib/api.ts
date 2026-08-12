@@ -91,6 +91,13 @@ function mergePendingCreates(url: string, data: any): any {
  * Replaces the optimistic placeholder when it is still there, and otherwise
  * prepends the row — the placeholder may have been dropped by a refetch that
  * raced the POST.
+ *
+ * v12.1 FIX: Also remove the temp item if a racing refetch already brought
+ * the real row in. Previously, if the refetch returned the real row BEFORE
+ * the POST response arrived, the list would contain BOTH the temp item and
+ * the real row (duplicate). The `list.some(...)` check returned early and
+ * left the temp item in place. Now we explicitly filter out the temp item
+ * when the real row is already present.
  */
 function commitCreatedRow(base: string, tempId: string, row: any) {
   for (const key of Array.from(cache.keys())) {
@@ -99,11 +106,20 @@ function commitCreatedRow(base: string, tempId: string, row: any) {
       const list = prev ? prev.slice() : []
       const idx = list.findIndex((x: any) => String(x?.id) === String(tempId))
       const merged = { ...row, _pending: false, _optimistic: false, _failed: false }
+      const realIdx = list.findIndex((x: any) => String(x?.id) === String(row?.id))
       if (idx !== -1) {
+        // Replace temp item with real data
         list[idx] = merged
+        // If the real row was ALSO in the list (from a racing refetch),
+        // remove the duplicate (the one at realIdx, which is different from idx)
+        if (realIdx !== -1 && realIdx !== idx) {
+          list.splice(realIdx > idx ? realIdx : realIdx, 1)
+        }
         return list
       }
-      if (list.some((x: any) => String(x?.id) === String(row?.id))) return list
+      // Temp item not found (wiped by a refetch). If the real row is already
+      // in the list, nothing to do. Otherwise, prepend it.
+      if (realIdx !== -1) return list
       return [merged, ...list]
     })
   }
@@ -177,12 +193,24 @@ function saveCacheToStorage(): void {
       if (!data || !ts) continue
       // Skip entries older than TTL for saving (don't bloat localStorage)
       if (now - ts > LS_CACHE_TTL * 6) continue // 60 min max
+      // STRIP optimistic temp items before persisting — they have IDs like
+      // "temp_..." and don't exist on the server. Without this, on page
+      // refresh the temp item would show briefly (from localStorage) then
+      // vanish when the server fetch returns the real list (without the temp),
+      // looking like the item "auto-deletes".
+      let cleanData = data
+      if (Array.isArray(data)) {
+        cleanData = data.filter((row: any) => {
+          const id = String(row?.id || '')
+          return !id.startsWith('temp_') && !row?._pending && !row?._optimistic
+        })
+      }
       try {
-        const serialized = JSON.stringify(data)
+        const serialized = JSON.stringify(cleanData)
         if (serialized.length > LS_MAX_VALUE_SIZE) continue
         totalSize += serialized.length
         if (totalSize > 3 * 1024 * 1024) break // 3MB total cap
-        toSave[key] = { data, ts }
+        toSave[key] = { data: cleanData, ts }
       } catch {}
     }
     localStorage.setItem(LS_CACHE_KEY, JSON.stringify(toSave))

@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { listRows, createInvoiceUltra } from '@/lib/sheets-client'
+import { listRows, createInvoiceUltra, getRow } from '@/lib/sheets-client'
 import { computeInvoice, type LineItem } from '@/lib/calc'
 import { apiLimiter, writeLimiter, getClientIp } from '@/lib/rate-limit'
 import { markUnitsSold, parseUnitList } from '@/lib/item-units'
@@ -103,6 +103,16 @@ export async function POST(req: NextRequest) {
     const paid = Number(amountPaid) || 0
     const due = Math.max(0, calc.grandTotal - paid)
 
+    // Fetch customer info so the invoice row has the customer's name, phone,
+    // and GSTIN. Without this, createInvoiceFull receives undefined for these
+    // fields — Firestore throws "Cannot use 'undefined' as a Firestore value"
+    // and the POST fails with 500, causing the optimistic temp item to be
+    // wiped on the next refetch (the "auto-delete" bug).
+    const customer = await getRow<any>('Customers', String(customerId))
+    const customerName = customer?.name || customer?.customerName || ''
+    const customerPhone = customer?.phone || customer?.customerPhone || ''
+    const customerGstin = customer?.gstNumber || customer?.customerGstin || ''
+
     // v11.2 FIX: when the user pays AT invoice creation, createInvoiceUltra
     // ONLY writes a Payments row when it receives a `payment` object — plain
     // amountPaid just set the invoice field and the money vanished from the
@@ -137,6 +147,9 @@ export async function POST(req: NextRequest) {
     // This is CLIENT-SIDE NUMBER GENERATION ELIMINATED - server generates number
     const result = await createInvoiceUltra({
       customerId,
+      customerName,
+      customerPhone,
+      customerGstin,
       items, // Pass raw items, server will compute too for safety
       itemsJson: JSON.stringify(calc.items),
       subtotal: calc.subtotal,
@@ -157,7 +170,7 @@ export async function POST(req: NextRequest) {
       payment,
       template: template || 'tally-classic',
       gstMode: gstMode === 'non-gst' ? 'non-gst' : 'gst',
-      // Server will fetch customer and generate number
+      // Server will generate number
     })
 
     // Retire the serial numbers / digital keys handed over on this invoice so
