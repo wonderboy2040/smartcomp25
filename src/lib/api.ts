@@ -217,7 +217,7 @@ function trackDeleted(type: 'jobs' | 'payments', id: string) {
  * background refetch that started BEFORE the delete was synced can
  * "resurrect" the row in the UI until the next refetch.
  *
- * The server (Apps Script) also tracks soft-deletes via the `deleted` column,
+ * The server (Firebase) also tracks soft-deletes via the `deleted` column,
  * but the local filter is a belt-and-braces guard against in-flight requests
  * and cache-race conditions (the same pattern index.html uses with
  * recentlyDeletedJobs).
@@ -290,8 +290,8 @@ function setQuantumMem(key: string, data: any): string {
 const STALE_MS = 180 * 1000 // 180s — longer cache = fewer refetches = faster perceived load
 const RETRY_ATTEMPTS = 1
 const RETRY_DELAY = 400
-const FETCH_TIMEOUT_MS = 15000 // 15s for writes — server-side Apps Script needs 10s, add network buffer
-const QUANTUM_FETCH_TIMEOUT = 12000 // 12s for GET — server-side Apps Script needs 8s, add network buffer
+const FETCH_TIMEOUT_MS = 15000 // 15s for writes — server-side Firebase needs 10s, add network buffer
+const QUANTUM_FETCH_TIMEOUT = 12000 // 12s for GET — server-side Firebase needs 8s, add network buffer
 const DASHBOARD_INVALIDATE_DEBOUNCE = 600
 
 // Offline detection
@@ -634,7 +634,7 @@ export async function apiPost(url: string, body: ApiBody) {
 }
 
 // ===== ULTRA-ULTRA FAST v6.0 - INSTANT RETURN + BACKGROUND SYNC =====
-// Returns temp item INSTANTLY (<50ms), syncs to Google Sheets in background
+// Returns temp item INSTANTLY (<50ms), syncs to Firebase in background
 // If offline, queues to IndexedDB and syncs when online
 export async function apiPostUltraFast(url: string, body: ApiBody, options: { instantClose?: boolean } = {}): Promise<any> {
   const base = url.split('?')[0].split('#')[0]

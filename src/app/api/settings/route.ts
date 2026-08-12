@@ -2,15 +2,15 @@ import { NextResponse } from 'next/server'
 import { testConnection, getConfiguredUrlPreview } from '@/lib/sheets-client'
 import { getAppPin, isFirebaseMode } from '@/lib/runtime-config'
 
-// GET - backend status (Firebase preferred, Apps Script legacy)
+// GET - backend status (Firebase)
 export async function GET() {
   const urlInfo = getConfiguredUrlPreview()
   const firebaseMode = isFirebaseMode()
   return NextResponse.json({
     message: firebaseMode
       ? 'Backend: Firebase Firestore (in-process SDK, ultra fast). Configured via FIREBASE_* env vars.'
-      : 'Backend: Google Sheets sync via APPS_SCRIPT_URL env var (legacy mode). Migrate to Firebase for ~50x faster reads.',
-    backend: firebaseMode ? 'firestore' : 'apps-script',
+      : 'Backend: Firebase Firestore. Not configured yet — set FIREBASE_* env vars.',
+    backend: 'firestore',
     urlPreview: urlInfo.urlPreview,
     urlConfigured: urlInfo.configured,
     urlEndsWithExec: urlInfo.endsWithExec,

@@ -40,7 +40,7 @@ export function CommandCenterPanel({ onNavigate }: { onNavigate?: (tab: string) 
   const customersRes = useFetch<any>('/api/customers', undefined)
   const jobsRes = useFetch<any>('/api/jobs', undefined)
   // Matches the URL the dashboard prefetches, so opening this panel reuses that
-  // cached response instead of firing a second Apps Script read for limit=100.
+  // cached response instead of firing a second Firebase read for limit=100.
   const quotationsRes = useFetch<any>('/api/quotations?limit=200', undefined)
   const suppliersRes = useFetch<any>('/api/suppliers', undefined)
   const dashboardRes = useFetch<any>('/api/dashboard', undefined)
@@ -232,7 +232,7 @@ export function CommandCenterPanel({ onNavigate }: { onNavigate?: (tab: string) 
           <div className="text-xs">
             <p className="font-semibold text-amber-900 dark:text-amber-200">Some data could not be loaded</p>
             <p className="text-amber-800 dark:text-amber-300/90 mt-0.5">
-              {failed.join(', ')} — search still works across everything else. Check your Google Sheets connection in Settings.
+              {failed.join(', ')} — search still works across everything else. Check your Firebase connection in Settings.
             </p>
           </div>
         </div>

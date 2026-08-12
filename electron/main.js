@@ -10,11 +10,11 @@
  *   4. Open a BrowserWindow pointing at that URL
  *
  * Cloud sync:
- *   - The .exe does NOT bake in APPS_SCRIPT_URL. The user pastes it once via
- *     the in-app SetupWizard (which calls POST /api/config with the URL).
+ *   - The .exe does NOT bake in FIREBASE_SERVICE_ACCOUNT_BASE64. The user pastes
+ *     it once via the in-app SetupWizard (which calls POST /api/config).
  *   - From then on, every add/edit/delete in the desktop app hits the same
- *     Google Apps Script URL as Mobile / Tablet / Browser, so all devices
- *     stay in sync via the same Google Sheet.
+ *     Firebase Firestore as Mobile / Tablet / Browser, so all devices
+ *     stay in sync via the same Firestore database.
  *
  * v2 FIXES:
  *   - Detects Next.js port from BOTH stdout and stderr
@@ -390,7 +390,7 @@ function showErrorWindow(errorMessage) {
 </head>
 <body>
   <h2>Failed to start Smart Computers</h2>
-  <p>The desktop app couldn't start the local Next.js server. Don't worry — your data is safe in your Google Sheet.</p>
+  <p>The desktop app couldn't start the local Next.js server. Don't worry — your data is safe in your Firebase.</p>
   <div class="box">${safeMsg}</div>
   <div class="log-path">
     <strong>Log file:</strong><br>

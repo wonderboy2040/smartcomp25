@@ -58,7 +58,7 @@ export async function GET(
   try {
     if (!isConfigured()) {
       return NextResponse.json(
-        { error: 'APPS_SCRIPT_URL not configured' },
+        { error: 'Firebase not configured' },
         { status: 503 },
       )
     }

@@ -64,7 +64,7 @@ const NAV_ITEMS = [
 ] as const
 
 // Prefetch in two waves. Wave 1 is what the Dashboard itself renders from —
-// firing it together with the low-priority tail made all 9 Apps Script reads
+// firing it together with the low-priority tail made all 9 Firebase reads
 // compete for the same connection pool, so the numbers the user actually looks
 // at arrived later than they had to.
 const PREFETCH_URLS_CRITICAL = [
@@ -199,7 +199,7 @@ function HomeInner() {
     }
   }, [isConfigured])
 
-  // Periodic dashboard refresh — pauses when tab is hidden (saves battery + Apps Script quota)
+  // Periodic dashboard refresh — pauses when tab is hidden (saves battery + Firebase quota)
   useEffect(() => {
     if (!isConfigured) return
     let id: ReturnType<typeof setInterval> | null = null
@@ -237,7 +237,7 @@ function HomeInner() {
 
   useEffect(() => {
     let cancelled = false
-    // Fetch /api/config (public) to check if APPS_SCRIPT_URL is set.
+    // Fetch /api/config (public) to check if Firebase is configured.
     // Then fetch /api/auth/status (public) to check if the user is authenticated.
     // We CANNOT use document.cookie to check the smartcomp_auth cookie because
     // it is HttpOnly (intentionally, for security — XSS can't steal it).
@@ -252,7 +252,7 @@ function HomeInner() {
         if (cancelled) return
         setIsConfigured(!!configData?.configured)
         setConfigChecked(true)
-        // If Apps Script is NOT configured → show SetupWizard (lets user paste URL)
+        // If Firebase is NOT configured → show SetupWizard (lets user paste URL)
         if (!configData?.configured) return
         // If PIN is required AND user is NOT authenticated → redirect to /login.
         // The auth status is determined SERVER-SIDE by /api/auth/status

@@ -21,13 +21,11 @@ export async function GET(req: Request) {
   const hasFirebaseProjectId = !!process.env.FIREBASE_PROJECT_ID
   const hasFirebaseClientEmail = !!process.env.FIREBASE_CLIENT_EMAIL
   const hasFirebasePrivateKey = !!process.env.FIREBASE_PRIVATE_KEY
-  const hasAppsScriptUrl = !!process.env.APPS_SCRIPT_URL
   const hasAppPin = !!process.env.APP_PIN
 
   const firebaseEnvConfigured =
     hasFirebaseBase64 || (hasFirebaseProjectId && hasFirebaseClientEmail && hasFirebasePrivateKey)
-  const appsScriptEnvConfigured = hasAppsScriptUrl
-  const backendConfigured = firebaseEnvConfigured || appsScriptEnvConfigured
+  const backendConfigured = firebaseEnvConfigured
   const firebaseMode = firebaseEnvConfigured
 
   const url = new URL(req.url)
@@ -37,41 +35,26 @@ export async function GET(req: Request) {
   let firebaseReachable: boolean | null = null
   let firebaseError: string | null = null
   let firebaseInitialized: boolean | null = null
-  let appsScriptReachable: boolean | null = null
-  let appsScriptError: string | null = null
 
   // Deep check is opt-in — used for manual debugging, NOT for health checks
   if (deep && backendConfigured) {
     try {
       // Dynamic import so firebase-admin doesn't load on the simple path
       const { pingFirestore } = await import('@/lib/firebase')
-      const { testConnection } = await import('@/lib/sheets-client')
-
-      if (firebaseMode) {
-        const result = await pingFirestore()
-        firebaseReachable = result.ok
-        firebaseError = result.message || null
-        firebaseInitialized = result.ok
-      } else {
-        const result = await testConnection()
-        appsScriptReachable = result.success
-        appsScriptError = result.success ? null : result.message
-      }
+      const result = await pingFirestore()
+      firebaseReachable = result.ok
+      firebaseError = result.message || null
+      firebaseInitialized = result.ok
     } catch (e: any) {
-      if (firebaseMode) {
-        firebaseReachable = false
-        firebaseError = e?.message || 'Unknown error during deep check'
-      } else {
-        appsScriptReachable = false
-        appsScriptError = e?.message || 'Unknown error during deep check'
-      }
+      firebaseReachable = false
+      firebaseError = e?.message || 'Unknown error during deep check'
     }
   }
 
   const hints: string[] = []
   if (!backendConfigured) {
     hints.push(
-      '🔴 No backend configured. Set FIREBASE_SERVICE_ACCOUNT_BASE64 on Render (see README → Firebase setup). Legacy alternative: set APPS_SCRIPT_URL.'
+      '🔴 No backend configured. Set FIREBASE_SERVICE_ACCOUNT_BASE64 on Render (see README → Firebase setup).'
     )
   } else if (firebaseMode) {
     if (deep) {
@@ -93,14 +76,12 @@ export async function GET(req: Request) {
       codename: 'SmartComp Pro Firebase',
       timestamp: new Date().toISOString(),
       uptime: typeof process.uptime === 'function' ? process.uptime() : 0,
-      backend: firebaseMode ? 'firestore' : 'apps-script',
+      backend: 'firestore',
       configured: backendConfigured,
       firebaseConfigured: firebaseEnvConfigured,
       firebaseInitialized,
       firebaseInitError: firebaseError,
-      appsScriptConfigured: !firebaseMode && appsScriptEnvConfigured,
       firebaseReachable,
-      appsScriptReachable,
       deep,
       pinRequired: hasAppPin,
       env: {
@@ -112,7 +93,6 @@ export async function GET(req: Request) {
         hasFirebaseProjectId,
         hasFirebaseClientEmail,
         hasFirebasePrivateKey,
-        hasAppsScriptUrl,
       },
       memory: process.memoryUsage
         ? {

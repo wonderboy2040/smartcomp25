@@ -24,7 +24,7 @@ export async function GET() {
 export async function PUT(req: NextRequest) {
   try {
     if (!isConfigured()) {
-      return NextResponse.json({ error: 'APPS_SCRIPT_URL not configured' }, { status: 503 })
+      return NextResponse.json({ error: 'Firebase not configured' }, { status: 503 })
     }
     const body = await req.json()
     const shop = await saveShop(body)

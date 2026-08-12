@@ -1,9 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { isConfigured, testConnection, listRows, getAllDataQuantum } from '@/lib/sheets-client'
-import { isFirebaseMode } from '@/lib/runtime-config'
 
 // Quantum Sync Endpoint - supports getAllData single-call (like index.html PWA)
-// and liveSync with hash, plus legacy status check.
+// and liveSync with hash, plus status check.
 //
 // In Firebase mode, "liveSync" is a no-op (the cache + 5s quantum mem cache
 // already keep reads fresh). The endpoint still returns the same shape so
@@ -79,13 +78,11 @@ export async function GET(req: NextRequest) {
     // Default status check (no heavy reads)
     return NextResponse.json({
       enabled,
-      backend: isFirebaseMode() ? 'firestore' : 'apps-script',
+      backend: 'firestore',
       lastSync: enabled ? new Date().toISOString() : null,
       lastSyncStatus: enabled ? 'success' : null,
       lastSyncMessage: enabled
-        ? isFirebaseMode()
-          ? 'Firebase mode — Firestore is the source of truth. Cache + 5s quantum mem cache keep reads fresh.'
-          : 'Quantum Sync Ready - getAllData + liveSync enabled (legacy Apps Script mode)'
+        ? 'Firebase mode — Firestore is the source of truth. Cache + 5s quantum mem cache keep reads fresh.'
         : null,
       quantum: true,
       version: '6.0',
@@ -118,57 +115,14 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ success: false, error: 'Not configured' }, { status: 400 })
       }
 
-      // In Firebase mode, return a no-op success so the PWA's liveSync loop
-      // doesn't break. The PWA can still call getAllData to refresh its view.
-      if (isFirebaseMode()) {
-        return NextResponse.json({
-          success: true,
-          status: 'success',
-          data: { timestamp: new Date().toISOString(), merged: 0, conflicts: 0 },
-          quantum: true,
-          backend: 'firestore',
-          message: 'liveSync is a no-op in Firebase mode. Use ?action=getAllData to refresh.',
-        })
-      }
-
-      // Legacy mode: forward to Apps Script
-      try {
-        const { getAppsScriptUrl, getAppPin } = await import('@/lib/runtime-config')
-        const appsUrl = getAppsScriptUrl()
-        if (!appsUrl) throw new Error('Not configured')
-        const pin = getAppPin()
-        const payload: any = { ...body }
-        if (pin) payload.pin = pin
-
-        const controller = new AbortController()
-        const timeout = setTimeout(() => controller.abort(), 4000)
-
-        const res = await fetch(appsUrl, {
-          method: 'POST',
-          headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-          body: JSON.stringify(payload),
-          signal: controller.signal,
-        })
-        clearTimeout(timeout)
-
-        const text = await res.text()
-        try {
-          const parsed = JSON.parse(text)
-          return NextResponse.json(parsed, { headers: { 'X-Quantum': 'liveSync' } })
-        } catch {
-          return NextResponse.json({
-            success: true,
-            status: 'success',
-            data: { timestamp: new Date().toISOString() },
-            quantum: true,
-          })
-        }
-      } catch (e: any) {
-        return NextResponse.json(
-          { success: false, error: e?.message, quantum: true, offline: true },
-          { status: 200 }
-        )
-      }
+      return NextResponse.json({
+        success: true,
+        status: 'success',
+        data: { timestamp: new Date().toISOString(), merged: 0, conflicts: 0 },
+        quantum: true,
+        backend: 'firestore',
+        message: 'liveSync is a no-op in Firebase mode. Use ?action=getAllData to refresh.',
+      })
     }
 
     // Default: test connection

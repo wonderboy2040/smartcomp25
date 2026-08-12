@@ -235,7 +235,7 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
         payment: payment || undefined,
       }
 
-      // ULTRA FAST: Single Apps Script call does job update + stock deduction + payment.
+      // ULTRA FAST: Single Firebase call does job update + stock deduction + payment.
       try {
         const result = await completeJobFull(completedPayload)
 

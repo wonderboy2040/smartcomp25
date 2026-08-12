@@ -30,7 +30,7 @@ async function getShopFast(): Promise<any> {
 export async function GET(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
     if (!isConfigured()) {
-      return NextResponse.json({ error: 'APPS_SCRIPT_URL not configured' }, { status: 503 })
+      return NextResponse.json({ error: 'Firebase not configured' }, { status: 503 })
     }
 
     const { id } = await params

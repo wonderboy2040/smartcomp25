@@ -101,7 +101,7 @@ function OverviewTab({ onNavigate }: { onNavigate: (tab: Tab) => void }) {
   const revenue = g?.revenue || { thisMonth: 0, lastMonth: 0, growthPct: 0, invoicesThisMonth: 0 }
   const customers = g?.customers || { newThisMonth: 0, totalActive: 0, repeatCustomers: 0, repeatRate: 0, vipCount: 0, goldCount: 0, silverCount: 0 }
   const opportunities = g?.opportunities || { winbackTargets: 0, reviewTargets: 0, overdueCount: 0 }
-  const actions = g?.actions || [{ priority: 'low', title: 'No data available', description: 'Connect Google Sheets to see insights.' }]
+  const actions = g?.actions || [{ priority: 'low', title: 'No data available', description: 'Connect Firebase to see insights.' }]
   const googleReviewUrl = g?.googleReviewUrl || BUSINESS_GROWTH.googleReviewUrl
   const revenueUp = (revenue.growthPct || 0) >= 0
 

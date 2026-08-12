@@ -2,7 +2,7 @@
  * Firebase Admin SDK — singleton Firestore initializer.
  *
  * Why this exists:
- *   The app used to talk to Google Sheets via an Apps Script web app. That
+ *   The app used to talk to Firebase Firestore via an Firebase web app. That
  *   added 6-8 s cold-start latency on every read. Firestore is an in-process
  *   SDK call from the Next.js server — typical reads are <100 ms.
  *

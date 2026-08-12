@@ -375,13 +375,8 @@ function SyncStatus() {
   const { data: status, refetch } = useFetch<any>('/api/sheets/sync', undefined)
   const { data: settingsInfo } = useFetch<any>('/api/settings', undefined)
   const [testing, setTesting] = useState(false)
-  const [debugging, setDebugging] = useState(false)
-  const [copying, setCopying] = useState(false)
-  const [showCode, setShowCode] = useState(false)
-  const [codeContent, setCodeContent] = useState<string>('')
   const [lastError, setLastError] = useState<string | null>(null)
   const [lastSuccess, setLastSuccess] = useState<string | null>(null)
-  const [debugResult, setDebugResult] = useState<any | null>(null)
 
   const handleTest = async () => {
     setTesting(true)
@@ -391,8 +386,8 @@ function SyncStatus() {
       const r = await fetch('/api/settings', { method: 'POST' })
       const res = await r.json()
       if (res.success) {
-        setLastSuccess(res.message || 'Connected to Google Sheets successfully!')
-        toast({ title: 'Connection successful!', description: 'Your Google Sheet is connected.' })
+        setLastSuccess(res.message || 'Connected to Firebase Firestore successfully!')
+        toast({ title: 'Connection successful!', description: 'Firebase Firestore is connected.' })
       } else {
         setLastError(res.message || 'Connection failed')
         toast({ title: 'Connection failed', description: 'See details below', variant: 'destructive', duration: 10000 })
@@ -406,85 +401,6 @@ function SyncStatus() {
     }
   }
 
-  const handleCopyCode = async () => {
-    setCopying(true)
-    try {
-      const r = await fetch('/api/apps-script-code')
-      if (!r.ok) {
-        const err = await r.json().catch(() => ({}))
-        throw new Error(err.error || `HTTP ${r.status}`)
-      }
-      const text = await r.text()
-      setCodeContent(text)
-
-      // Try clipboard copy
-      try {
-        await navigator.clipboard.writeText(text)
-        toast({
-          title: 'Code copied to clipboard!',
-          description: 'Now paste it into your Apps Script editor (Ctrl+A → Delete → Ctrl+V).',
-          duration: 8000,
-        })
-      } catch {
-        // Clipboard API failed — show the code in a modal so user can manually copy
-        setShowCode(true)
-        toast({
-          title: 'Could not auto-copy',
-          description: 'Click "Show code" to view and manually copy the code.',
-          duration: 8000,
-        })
-      }
-    } catch (e: any) {
-      toast({ title: 'Could not fetch code', description: e.message, variant: 'destructive', duration: 10000 })
-    } finally {
-      setCopying(false)
-    }
-  }
-
-  const handleDownloadCode = async () => {
-    try {
-      const r = await fetch('/api/apps-script-code')
-      if (!r.ok) throw new Error(`HTTP ${r.status}`)
-      const text = await r.text()
-      const blob = new Blob([text], { type: 'text/plain;charset=utf-8' })
-      const url = URL.createObjectURL(blob)
-      const a = document.createElement('a')
-      a.href = url
-      a.download = 'code.gs'
-      document.body.appendChild(a)
-      a.click()
-      document.body.removeChild(a)
-      URL.revokeObjectURL(url)
-      toast({ title: 'Downloaded code.gs', description: 'Open this file → copy contents → paste into Apps Script editor.' })
-    } catch (e: any) {
-      toast({ title: 'Download failed', description: e.message, variant: 'destructive' })
-    }
-  }
-
-  const handleDebug = async () => {
-    setDebugging(true)
-    setDebugResult(null)
-    try {
-      const r = await fetch('/api/debug-connection', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ method: 'GET', action: 'test' }),
-      })
-      const res = await r.json()
-      setDebugResult(res)
-      if (res.success && res.looksLikeJson) {
-        toast({ title: 'Apps Script is working!', description: 'Response is valid JSON' })
-      } else {
-        toast({ title: 'See debug output below', description: res.diagnosis || 'Check the response details', variant: 'destructive', duration: 10000 })
-      }
-    } catch (e: any) {
-      setDebugResult({ error: e.message, bodyPreview: e.stack })
-      toast({ title: 'Debug failed', description: e.message, variant: 'destructive' })
-    } finally {
-      setDebugging(false)
-    }
-  }
-
   return (
     <div className="space-y-4">
       <Card className="border-slate-200 shadow-sm">
@@ -493,53 +409,11 @@ function SyncStatus() {
             <div className="w-8 h-8 bg-violet-100 rounded-lg flex items-center justify-center">
               <Cloud className="w-4 h-4 text-violet-600" />
             </div>
-            Google Sheets Sync Status
+            Firebase Firestore Status
           </CardTitle>
-          <CardDescription>Your data is stored directly in Google Sheets via Apps Script</CardDescription>
+          <CardDescription>Your data is stored in Firebase Firestore (in-process SDK, ultra fast)</CardDescription>
         </CardHeader>
         <CardContent className="space-y-3">
-          {/* Show the configured URL (masked) so user can verify format */}
-          {settingsInfo?.urlConfigured && (
-            <div className="bg-slate-50 border border-slate-200 rounded-lg p-3 space-y-2">
-              <div className="flex items-center gap-2">
-                <Code className="w-3.5 h-3.5 text-slate-500 flex-shrink-0" />
-                <span className="text-xs font-medium text-slate-700">Configured APPS_SCRIPT_URL:</span>
-              </div>
-              <code className="block text-[10px] sm:text-xs bg-white px-2 py-1.5 rounded border border-slate-200 break-all font-mono text-slate-600">
-                {settingsInfo.urlPreview || '(not set)'}
-              </code>
-              <div className="flex items-center gap-2 flex-wrap">
-                {settingsInfo.urlEndsWithExec ? (
-                  <Badge variant="outline" className="bg-green-50 text-green-700 border-green-200 text-[10px]">
-                    <CheckCircle2 className="w-3 h-3 mr-1" /> URL ends with /exec ✓
-                  </Badge>
-                ) : (
-                  <Badge variant="outline" className="bg-red-50 text-red-700 border-red-200 text-[10px]">
-                    <AlertCircle className="w-3 h-3 mr-1" /> URL does NOT end with /exec ✗
-                  </Badge>
-                )}
-                {settingsInfo.urlPreview && (
-                  <a
-                    href={settingsInfo.urlPreview.includes('...')
-                      ? '#'
-                      : settingsInfo.urlPreview + '?action=test&t=' + Date.now()}
-                    target="_blank"
-                    rel="noreferrer"
-                    className={`text-[10px] text-blue-600 hover:text-blue-700 font-medium flex items-center gap-1 ${settingsInfo.urlPreview.includes('...') ? 'pointer-events-none opacity-50' : ''}`}
-                    onClick={(e) => {
-                      if (settingsInfo.urlPreview.includes('...')) {
-                        e.preventDefault()
-                        toast({ title: 'Cannot open masked URL', description: 'The URL is masked for security. Open it manually in your browser.', variant: 'destructive' })
-                      }
-                    }}
-                  >
-                    <ExternalLink className="w-3 h-3" /> Open in browser
-                  </a>
-                )}
-              </div>
-            </div>
-          )}
-
           <div className="flex items-center justify-between p-4 bg-gradient-to-r from-emerald-50 to-emerald-100/50 rounded-xl border border-emerald-200">
             <div className="flex items-center gap-3">
               <div className="w-10 h-10 bg-emerald-100 rounded-full flex items-center justify-center">
@@ -547,10 +421,10 @@ function SyncStatus() {
               </div>
               <div>
                 <p className="font-semibold text-slate-900">
-                  {status?.enabled ? 'Connected to Google Sheets' : 'Not Connected'}
+                  {status?.enabled ? 'Connected to Firebase' : 'Not Connected'}
                 </p>
                 <p className="text-xs text-slate-600">
-                  {status?.enabled ? 'All data syncs in real-time' : 'APPS_SCRIPT_URL not set'}
+                  {status?.enabled ? 'All data syncs in real-time' : 'Firebase credentials not set'}
                 </p>
               </div>
             </div>
@@ -558,11 +432,6 @@ function SyncStatus() {
               Active
             </Badge>
           </div>
-
-          {/* Desktop-mode: change cloud URL / PIN without reinstalling */}
-          {settingsInfo?.runtimeConfigActive && (
-            <DesktopCloudConfigEditor />
-          )}
 
           {status?.counts && (
             <div className="grid grid-cols-3 gap-3">
@@ -581,134 +450,11 @@ function SyncStatus() {
             </div>
           )}
 
-          {/* ===== ONE-CLICK FIX: Copy latest Apps Script code ===== */}
-          <div className="bg-gradient-to-br from-emerald-50 to-cyan-50 border border-emerald-200 rounded-xl p-4">
-            <div className="flex items-start gap-3 mb-3">
-              <div className="w-9 h-9 bg-emerald-500 rounded-lg flex items-center justify-center flex-shrink-0">
-                <Sparkles className="w-5 h-5 text-white" />
-              </div>
-              <div className="flex-1 min-w-0">
-                <p className="font-semibold text-slate-900 text-sm">
-                  Quick Fix: Update your Apps Script code (v2.7)
-                </p>
-                <p className="text-xs text-slate-600 mt-0.5">
-                  If Test Connection fails or returns HTML, your deployed Apps Script is outdated.
-                  Click below to copy the latest code, then paste it into your Apps Script editor.
-                </p>
-              </div>
-            </div>
-            <div className="flex flex-wrap gap-2">
-              <Button
-                onClick={handleCopyCode}
-                disabled={copying}
-                className="bg-emerald-600 hover:bg-emerald-700 text-white flex-1 min-w-[160px]"
-                size="sm"
-              >
-                {copying
-                  ? <><Loader2 className="w-4 h-4 mr-1.5 animate-spin" /> Copying...</>
-                  : <><Copy className="w-4 h-4 mr-1.5" /> Copy latest Apps Script code</>}
-              </Button>
-              <Button
-                onClick={handleDownloadCode}
-                variant="outline"
-                size="sm"
-                className="border-emerald-300 text-emerald-700 hover:bg-emerald-100"
-              >
-                <FileSpreadsheet className="w-4 h-4 mr-1.5" /> Download code.gs
-              </Button>
-              {codeContent && (
-                <Button
-                  onClick={() => setShowCode(s => !s)}
-                  variant="ghost"
-                  size="sm"
-                  className="text-slate-600"
-                >
-                  <Code className="w-4 h-4 mr-1.5" /> {showCode ? 'Hide' : 'Show'} code
-                </Button>
-              )}
-            </div>
-
-            {/* Collapsible code viewer (shown if clipboard failed or user clicked Show) */}
-            {showCode && codeContent && (
-              <div className="mt-3">
-                <div className="bg-slate-900 text-slate-100 rounded-lg p-3 font-mono text-[10px] sm:text-xs overflow-auto max-h-72">
-                  <div className="flex items-center justify-between mb-2 pb-2 border-b border-slate-700 sticky top-0 bg-slate-900 -mt-3 -mx-3 px-3 pt-3">
-                    <span className="font-semibold text-cyan-400">apps-script/code.gs (v2.7, {codeContent.length} chars)</span>
-                    <button
-                      onClick={() => { navigator.clipboard.writeText(codeContent); toast({ title: 'Copied to clipboard' }) }}
-                      className="text-emerald-400 hover:text-emerald-300 text-[10px] font-medium"
-                    >
-                      <Copy className="w-3 h-3 inline mr-1" /> Copy
-                    </button>
-                  </div>
-                  <pre className="whitespace-pre-wrap break-all text-slate-300">{codeContent}</pre>
-                </div>
-              </div>
-            )}
-
-            {/* Step-by-step instructions */}
-            <details className="mt-3 group">
-              <summary className="text-xs font-medium text-emerald-700 cursor-pointer hover:text-emerald-800 list-none flex items-center gap-1">
-                <span className="group-open:rotate-90 transition-transform">▶</span>
-                Show step-by-step deployment instructions
-              </summary>
-              <ol className="list-decimal list-inside space-y-1.5 text-xs text-slate-700 mt-2 pl-2">
-                <li>Click <strong>"Copy latest Apps Script code"</strong> above (or download the file).</li>
-                <li>Open your Google Sheet → click <strong>Extensions → Apps Script</strong>.</li>
-                <li>In the Apps Script editor, press <strong>Ctrl+A</strong> (select all) then <strong>Delete</strong>.</li>
-                <li>Press <strong>Ctrl+V</strong> to paste the new code. Press <strong>Ctrl+S</strong> to save.</li>
-                <li>Click <strong>Deploy → Manage deployments</strong> in the top-right.</li>
-                <li>Click the <strong>pencil (edit) icon</strong> on your existing deployment.</li>
-                <li>Under <strong>Version</strong>, select <strong>"New version"</strong>.</li>
-                <li>Set <strong>"Who has access"</strong> to <strong>"Anyone"</strong>.</li>
-                <li>Click <strong>Deploy</strong> → authorize if prompted → copy the new <code className="bg-emerald-100 px-1 rounded">/exec</code> URL.</li>
-                <li>Update your <code className="bg-emerald-100 px-1 rounded">APPS_SCRIPT_URL</code> env var on Render/Vercel if the URL changed → redeploy.</li>
-                <li>Come back here → click <strong>"Test Connection"</strong>. It should succeed.</li>
-              </ol>
-            </details>
-          </div>
-
           <div className="flex gap-2">
             <Button variant="outline" onClick={handleTest} disabled={testing} className="flex-1">
               {testing ? <><Loader2 className="w-4 h-4 mr-1.5 animate-spin" /> Testing...</> : <><Zap className="w-4 h-4 mr-1.5" /> Test Connection</>}
             </Button>
-            <Button variant="outline" onClick={handleDebug} disabled={debugging} className="flex-1">
-              {debugging ? <><Loader2 className="w-4 h-4 mr-1.5 animate-spin" /> Debugging...</> : <><Bug className="w-4 h-4 mr-1.5" /> Debug Connection</>}
-            </Button>
           </div>
-
-          {/* Debug result — shows the FULL response from Apps Script */}
-          {debugResult && (
-            <div className="bg-slate-900 text-slate-100 rounded-lg p-3 font-mono text-[10px] sm:text-xs overflow-x-auto max-h-80 overflow-y-auto">
-              <div className="flex items-center justify-between mb-2 pb-2 border-b border-slate-700">
-                <span className="font-semibold text-cyan-400">Apps Script Response</span>
-                <button onClick={() => setDebugResult(null)} className="text-slate-400 hover:text-white">
-                  <X className="w-3 h-3" />
-                </button>
-              </div>
-              <div className="space-y-1">
-                <div><span className="text-slate-400">Status:</span> <span className={debugResult.success ? 'text-green-400' : 'text-red-400'}>{debugResult.status} {debugResult.statusText}</span></div>
-                <div><span className="text-slate-400">Content-Type:</span> <span className="text-yellow-300">{debugResult.contentType}</span></div>
-                <div><span className="text-slate-400">Redirected:</span> <span className="text-yellow-300">{String(debugResult.redirected)}</span></div>
-                {debugResult.finalUrl && <div><span className="text-slate-400">Final URL:</span> <span className="text-yellow-300 break-all">{debugResult.finalUrl}</span></div>}
-                <div><span className="text-slate-400">Body length:</span> <span className="text-yellow-300">{debugResult.bodyLength} chars</span></div>
-                <div><span className="text-slate-400">Page title:</span> <span className="text-yellow-300">{debugResult.title || '(none)'}</span></div>
-                <div><span className="text-slate-400">Is JSON:</span> <span className={debugResult.looksLikeJson ? 'text-green-400' : 'text-red-400'}>{String(debugResult.looksLikeJson)}</span></div>
-                <div><span className="text-slate-400">Is HTML:</span> <span className={debugResult.isHtml ? 'text-red-400' : 'text-green-400'}>{String(debugResult.isHtml)}</span></div>
-                <div><span className="text-slate-400">Looks like login page:</span> <span className={debugResult.looksLikeLoginPage ? 'text-red-400' : 'text-green-400'}>{String(debugResult.looksLikeLoginPage)}</span></div>
-                <div><span className="text-slate-400">Looks like error page:</span> <span className={debugResult.looksLikeErrorPage ? 'text-red-400' : 'text-green-400'}>{String(debugResult.looksLikeErrorPage)}</span></div>
-              </div>
-              {debugResult.diagnosis && (
-                <div className="mt-2 p-2 bg-blue-900/50 rounded text-blue-200 text-xs leading-relaxed">
-                  <span className="font-semibold">Diagnosis: </span>{debugResult.diagnosis}
-                </div>
-              )}
-              <div className="mt-2">
-                <div className="text-slate-400 mb-1">Body preview (first 2000 chars):</div>
-                <pre className="whitespace-pre-wrap break-all text-slate-300">{debugResult.bodyPreview}</pre>
-              </div>
-            </div>
-          )}
 
           {/* Persistent error/success display — stays visible until dismissed */}
           {lastError && (
@@ -736,101 +482,21 @@ function SyncStatus() {
             </div>
           )}
 
-          {/* Quick Fix guide — shown when there's an error */}
-          {lastError && (
-            <div className="bg-amber-50 border border-amber-300 rounded-lg p-3 mt-2">
-              <div className="flex items-start gap-2">
-                <Bug className="w-4 h-4 text-amber-600 flex-shrink-0 mt-0.5" />
-                <div className="text-xs text-amber-900 flex-1 min-w-0">
-                  <p className="font-bold mb-2">Quick Fix Guide (3 steps):</p>
-                  <ol className="list-decimal list-inside space-y-2">
-                    <li>
-                      <strong>Open your Google Sheet</strong> → Extensions → Apps Script
-                    </li>
-                    <li>
-                      <strong>Delete everything</strong> in the code editor, then paste the <strong>NEW</strong> code.gs from this app's <code className="bg-amber-100 px-1 rounded">apps-script/code.gs</code> file (v2.6 — fixed test action)
-                    </li>
-                    <li>
-                      Click <strong>Deploy → Manage deployments</strong> → click the pencil icon → <strong>Version: New version</strong> → <strong>Deploy</strong> → copy the new <code className="bg-amber-100 px-1 rounded">/exec</code> URL
-                    </li>
-                  </ol>
-                  <div className="mt-3 p-2 bg-white border border-amber-200 rounded text-[11px]">
-                    <p className="font-semibold mb-1">Why this happens:</p>
-                    <p>The Apps Script returned an HTML error page (titled "SmartComp") instead of JSON. This means the OLD script code has a runtime error — usually because it tries to access sheets before checking if the script is properly deployed. The NEW code (v2.6) handles the <code className="bg-amber-100 px-1 rounded">test</code> action WITHOUT touching sheets, so Test Connection will work even if sheets aren't set up yet.</p>
-                  </div>
-                  <div className="mt-2 p-2 bg-blue-50 border border-blue-200 rounded text-[11px]">
-                    <p className="font-semibold mb-1">After updating code.gs:</p>
-                    <p>1. Click <strong>"Debug Connection"</strong> button above — it should now show "Is JSON: true" and "Status: 200"</p>
-                    <p>2. Then click <strong>"Test Connection"</strong> — it should succeed</p>
-                    <p>3. Refresh the page — data will start loading</p>
-                  </div>
-                </div>
-              </div>
-            </div>
-          )}
-
           <div className="bg-slate-50 border border-slate-200 rounded-lg p-3 mt-2">
             <div className="flex items-start gap-2">
               <ShieldCheck className="w-4 h-4 text-emerald-600 flex-shrink-0 mt-0.5" />
               <div className="text-xs text-slate-700">
                 <p className="font-medium mb-1">How it works:</p>
                 <ul className="list-disc list-inside space-y-0.5">
-                  <li>Data is stored directly in your Google Sheet (no other database)</li>
-                  <li>APPS_SCRIPT_URL env var connects your app to the Sheet</li>
-                  <li>6 sheets auto-created: Shop, Items, Customers, Suppliers, Invoices, Quotations, Payments, Enquiries</li>
+                  <li>Data is stored in Firebase Firestore (no Firebase Firestore needed)</li>
+                  <li>FIREBASE_SERVICE_ACCOUNT_BASE64 env var connects your app to Firestore</li>
+                  <li>Collections auto-created: Shop, Items, Customers, Suppliers, Invoices, Quotations, Payments, Enquiries</li>
                   <li>Multi-device support: any device accessing this URL sees the same data</li>
-                  <li>Works on Render/Vercel free tier (no database needed)</li>
+                  <li>Works on Render/Vercel free tier</li>
                 </ul>
               </div>
             </div>
           </div>
-        </CardContent>
-      </Card>
-
-      <Card className="border-blue-200 bg-gradient-to-br from-blue-50 to-white shadow-sm">
-        <CardHeader>
-          <CardTitle className="text-base flex items-center gap-2">
-            <div className="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center">
-              <Code className="w-4 h-4 text-white" />
-            </div>
-            Apps Script Setup Reference
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          <ol className="space-y-2 text-sm">
-            <li className="flex gap-3">
-              <span className="flex-shrink-0 w-6 h-6 bg-blue-600 text-white rounded-full flex items-center justify-center text-xs font-bold">1</span>
-              <div>
-                <p className="font-medium text-slate-900">Open Google Sheets</p>
-                <p className="text-xs text-slate-600">
-                  <a href="https://sheets.new" target="_blank" rel="noreferrer" className="text-blue-600 hover:underline inline-flex items-center gap-0.5">
-                    sheets.new <ExternalLink className="w-3 h-3" />
-                  </a>
-                </p>
-              </div>
-            </li>
-            <li className="flex gap-3">
-              <span className="flex-shrink-0 w-6 h-6 bg-blue-600 text-white rounded-full flex items-center justify-center text-xs font-bold">2</span>
-              <div>
-                <p className="font-medium text-slate-900">Open Apps Script</p>
-                <p className="text-xs text-slate-600">Extensions → Apps Script</p>
-              </div>
-            </li>
-            <li className="flex gap-3">
-              <span className="flex-shrink-0 w-6 h-6 bg-blue-600 text-white rounded-full flex items-center justify-center text-xs font-bold">3</span>
-              <div>
-                <p className="font-medium text-slate-900">Paste code from apps-script/code.gs</p>
-                <p className="text-xs text-slate-600">Then Deploy → Web app → Anyone access</p>
-              </div>
-            </li>
-            <li className="flex gap-3">
-              <span className="flex-shrink-0 w-6 h-6 bg-blue-600 text-white rounded-full flex items-center justify-center text-xs font-bold">4</span>
-              <div>
-                <p className="font-medium text-slate-900">Set APPS_SCRIPT_URL env var</p>
-                <p className="text-xs text-slate-600">In Render/Vercel dashboard, add environment variable</p>
-              </div>
-            </li>
-          </ol>
         </CardContent>
       </Card>
     </div>
@@ -884,10 +550,10 @@ function DataSettings() {
 
         <div className="bg-slate-50 rounded-lg p-3 text-xs text-slate-600 space-y-2">
           <p className="font-medium text-slate-700">Data Storage Info:</p>
-          <p>All data is stored in your Google Sheet (configured via APPS_SCRIPT_URL).</p>
+          <p>All data is stored in Firebase Firestore (configured via FIREBASE_SERVICE_ACCOUNT_BASE64).</p>
           <p>No local database - works on Render/Vercel free tier.</p>
-          <p>Multi-device support: all devices share the same Google Sheet data.</p>
-          <p>To view raw data: open your Google Sheet directly.</p>
+          <p>Multi-device support: all devices share the same Firestore data.</p>
+          <p>To view raw data: open your Firebase Console → Firestore Database.</p>
         </div>
       </CardContent>
     </Card>
@@ -1361,35 +1027,23 @@ function SystemHealth() {
 /**
  * DesktopCloudConfigEditor — visible only when the app is running inside the
  * Electron desktop wrapper (runtimeConfigActive = true). Lets the user change
- * the Google Apps Script URL and PIN without reinstalling the .exe.
+ * the Firebase credentials and PIN without reinstalling the .exe.
  *
  * Why this exists:
- *   - All add/edit/delete operations go through APPS_SCRIPT_URL → Google Sheet
- *   - On desktop, the URL is stored in %APPDATA%/smartcomp/config.json
- *   - Same Google Sheet = same data on Mobile + Tablet + Browser + Desktop
- *   - Changing the URL here instantly repoints this desktop to a different
- *     sheet (or fixes a stale deployment URL) without a rebuild
+ *   - All add/edit/delete operations go through Firebase Firestore
+ *   - On desktop, the credentials are stored in %APPDATA%/smartcomp/config.json
+ *   - Same Firestore = same data on Mobile + Tablet + Browser + Desktop
  */
 function DesktopCloudConfigEditor() {
   const { toast } = useToast()
-  const [url, setUrl] = useState('')
+  const [firebaseKey, setFirebaseKey] = useState('')
   const [pin, setPin] = useState('')
   const [saving, setSaving] = useState(false)
   const [reveal, setReveal] = useState(false)
 
-  // We don't auto-fill the URL field because the API returns it masked for
-  // security. The user pastes a fresh URL when they want to switch sheets.
-  useEffect(() => {
-    // no-op — kept for future hooks
-  }, [])
-
   const handleSave = async () => {
-    if (!url.trim()) {
-      toast({ title: 'URL required', variant: 'destructive' })
-      return
-    }
-    if (!url.includes('/exec')) {
-      toast({ title: 'Invalid URL', description: 'URL must end with /exec', variant: 'destructive' })
+    if (!firebaseKey.trim()) {
+      toast({ title: 'Firebase key required', variant: 'destructive' })
       return
     }
     if (pin && !/^\d{4,8}$/.test(pin)) {
@@ -1401,13 +1055,13 @@ function DesktopCloudConfigEditor() {
       const r = await fetch('/api/config', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ appsScriptUrl: url.trim(), appPin: pin.trim() }),
+        body: JSON.stringify({ firebaseServiceAccountBase64: firebaseKey.trim(), appPin: pin.trim() }),
       })
       const res = await r.json()
       if (res.success) {
         toast({
           title: 'Saved',
-          description: 'This desktop now points to the same Google Sheet as your other devices.',
+          description: 'This desktop now points to the same Firebase Firestore as your other devices.',
         })
         setPin('')
         setTimeout(() => window.location.reload(), 800)
@@ -1431,17 +1085,17 @@ function DesktopCloudConfigEditor() {
         </Badge>
       </div>
       <p className="text-xs text-slate-600">
-        This desktop app talks to the same Google Sheet as your phone, tablet, and browser.
-        Paste a new Apps Script URL here if your deployment changed. All add/edit/delete
-        actions will sync live to every device.
+        This desktop app talks to the same Firebase Firestore as your phone, tablet, and browser.
+        Paste a new Firebase service account key (base64) here if your credentials changed.
+        All add/edit/delete actions will sync live to every device.
       </p>
       <div className="space-y-2">
-        <Label className="text-xs font-medium text-slate-700">Google Apps Script URL (/exec)</Label>
+        <Label className="text-xs font-medium text-slate-700">Firebase Service Account (base64)</Label>
         <Input
           type={reveal ? 'text' : 'password'}
-          value={url}
-          onChange={(e) => setUrl(e.target.value)}
-          placeholder="https://script.google.com/macros/s/AKfycb.../exec"
+          value={firebaseKey}
+          onChange={(e) => setFirebaseKey(e.target.value)}
+          placeholder="base64-encoded-service-account-json"
           className="h-9 text-xs font-mono"
         />
         <div className="flex items-center gap-2">

@@ -126,7 +126,7 @@ export async function POST(req: NextRequest) {
     }
 
     // ULTRA-ULTRA FAST v6.0: Single call does EVERYTHING - customer fetch + number generation + invoice + stock + customer credit + payment
-    // No need to fetch customer or list invoices separately - server does it all in one Apps Script execution
+    // No need to fetch customer or list invoices separately - server does it all in one Firebase execution
     // This is CLIENT-SIDE NUMBER GENERATION ELIMINATED - server generates number
     const result = await createInvoiceUltra({
       customerId,

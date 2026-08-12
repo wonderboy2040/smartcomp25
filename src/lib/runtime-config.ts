@@ -10,18 +10,14 @@
  * Env vars (when present) ALWAYS win — this preserves existing cloud
  * behaviour and lets the same code run on web + desktop unchanged.
  *
- * Backend modes:
- *   - Firebase (preferred, ultra fast): set FIREBASE_SERVICE_ACCOUNT_BASE64
+ * Backend mode:
+ *   - Firebase (only supported): set FIREBASE_SERVICE_ACCOUNT_BASE64
  *     OR (FIREBASE_PROJECT_ID + FIREBASE_CLIENT_EMAIL + FIREBASE_PRIVATE_KEY).
- *   - Apps Script (legacy, slow): set APPS_SCRIPT_URL. Kept for backward
- *     compatibility and the desktop .exe that may still ship with it.
- *   - If BOTH are set, Firebase wins.
  */
 
 import { existsSync, readFileSync } from 'fs'
 
 interface RuntimeConfig {
-  appsScriptUrl?: string
   appPin?: string
   // Firebase fields (desktop mode stores them in the same JSON file)
   firebaseServiceAccountBase64?: string
@@ -47,7 +43,6 @@ function read(): RuntimeConfig {
         const raw = readFileSync(path, 'utf-8')
         const parsed = JSON.parse(raw) as RuntimeConfig
         cache = {
-          appsScriptUrl: parsed.appsScriptUrl?.trim() || undefined,
           appPin: parsed.appPin?.trim() || undefined,
           firebaseServiceAccountBase64: parsed.firebaseServiceAccountBase64?.trim() || undefined,
           firebaseProjectId: parsed.firebaseProjectId?.trim() || undefined,
@@ -65,11 +60,6 @@ function read(): RuntimeConfig {
   return cache
 }
 
-export function getAppsScriptUrl(): string | undefined {
-  if (process.env.APPS_SCRIPT_URL) return process.env.APPS_SCRIPT_URL
-  return read().appsScriptUrl
-}
-
 export function getAppPin(): string | undefined {
   if (process.env.APP_PIN) return process.env.APP_PIN
   return read().appPin
@@ -83,9 +73,9 @@ export function isFirebaseMode(): boolean {
   return !!(cfg.firebaseServiceAccountBase64 || (cfg.firebaseProjectId && cfg.firebaseClientEmail && cfg.firebasePrivateKey))
 }
 
-/** Returns true when ANY backend (Firebase or legacy Apps Script) is configured. */
+/** Returns true when Firebase backend is configured. */
 export function isBackendConfigured(): boolean {
-  return isFirebaseMode() || !!getAppsScriptUrl()
+  return isFirebaseMode()
 }
 
 export function getFirebaseServiceAccountBase64(): string | undefined {

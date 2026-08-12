@@ -2,19 +2,14 @@
 
 import { useState, useEffect } from 'react'
 import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
 import { Card, CardContent } from '@/components/ui/card'
 import { useToast } from '@/hooks/use-toast'
-import { Store, ExternalLink, Copy, CheckCircle2, Loader2, AlertCircle, Sparkles, ShieldCheck, Cloud } from 'lucide-react'
+import { Store, CheckCircle2, Loader2, AlertCircle, Sparkles, ShieldCheck, Cloud } from 'lucide-react'
 
 export function SetupWizard() {
   const { toast } = useToast()
   const [testing, setTesting] = useState(false)
-  const [saving, setSaving] = useState(false)
-  const [copied, setCopied] = useState(false)
   const [configStatus, setConfigStatus] = useState<{ configured: boolean; runtimeConfigActive?: boolean } | null>(null)
-  const [urlInput, setUrlInput] = useState('')
-  const [pinInput, setPinInput] = useState('')
 
   const checkConfig = async () => {
     try {
@@ -39,7 +34,7 @@ export function SetupWizard() {
       const r = await fetch('/api/config', { method: 'POST' })
       const res = await r.json()
       if (res.success) {
-        toast({ title: 'Connection successful!', description: 'Your Google Sheet is ready.' })
+        toast({ title: 'Connection successful!', description: 'Firebase Firestore is connected.' })
       } else {
         toast({ title: 'Connection failed', description: res.message, variant: 'destructive' })
       }
@@ -48,43 +43,6 @@ export function SetupWizard() {
     } finally {
       setTesting(false)
     }
-  }
-
-  // Desktop-only: save URL + PIN to runtime config file via the API
-  const handleSaveDesktop = async () => {
-    if (!urlInput.trim()) {
-      toast({ title: 'URL required', description: 'Paste your Google Apps Script /exec URL.', variant: 'destructive' })
-      return
-    }
-    if (!urlInput.includes('/exec')) {
-      toast({ title: 'Invalid URL', description: 'URL must end with /exec', variant: 'destructive' })
-      return
-    }
-    setSaving(true)
-    try {
-      const r = await fetch('/api/config', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ appsScriptUrl: urlInput.trim(), appPin: pinInput.trim() }),
-      })
-      const res = await r.json()
-      if (res.success) {
-        toast({ title: 'Saved!', description: 'Connecting to your Google Sheet...' })
-        setTimeout(() => window.location.reload(), 800)
-      } else {
-        toast({ title: 'Save failed', description: res.message, variant: 'destructive' })
-      }
-    } catch (e: any) {
-      toast({ title: 'Error', description: e.message, variant: 'destructive' })
-    } finally {
-      setSaving(false)
-    }
-  }
-
-  const copyCode = () => {
-    navigator.clipboard.writeText('apps-script/code.gs')
-    setCopied(true)
-    setTimeout(() => setCopied(false), 2000)
   }
 
   return (
@@ -110,46 +68,10 @@ export function SetupWizard() {
           <div>
             <p className="text-sm font-medium text-amber-200">Setup Required</p>
             <p className="text-xs text-amber-300/80 mt-0.5">
-              {configStatus?.runtimeConfigActive
-                ? 'Desktop mode: paste your Google Apps Script /exec URL below to connect this device to your cloud Google Sheet.'
-                : 'APPS_SCRIPT_URL environment variable is not set. Follow the steps below to complete setup.'}
+              Firebase credentials are not set. Follow the steps below to complete setup.
             </p>
           </div>
         </div>
-
-        {/* Desktop-mode URL entry */}
-        {configStatus?.runtimeConfigActive && (
-          <Card className="bg-card/95 backdrop-blur border border-emerald-500/40 shadow-2xl mb-4">
-            <CardContent className="p-4 sm:p-6 space-y-3">
-              <div className="flex items-center gap-2">
-                <Cloud className="w-5 h-5 text-emerald-500" />
-                <h2 className="text-base sm:text-lg font-bold text-slate-900">Connect to your Google Sheet</h2>
-              </div>
-              <p className="text-xs text-slate-600">
-                Paste the Web App URL you got from Apps Script → Deploy → Web app. All your data will sync live across Mobile, Tablet, Browser and this Desktop app via the same Google Sheet.
-              </p>
-              <Input
-                type="url"
-                placeholder="https://script.google.com/macros/s/AKfycb.../exec"
-                value={urlInput}
-                onChange={(e) => setUrlInput(e.target.value)}
-                className="h-11 text-sm"
-              />
-              <Input
-                type="password"
-                placeholder="Optional: 4-8 digit PIN lock"
-                value={pinInput}
-                onChange={(e) => setPinInput(e.target.value)}
-                className="h-11 text-sm"
-                inputMode="numeric"
-                pattern="\d{4,8}"
-              />
-              <Button onClick={handleSaveDesktop} disabled={saving} className="w-full bg-emerald-600 hover:bg-emerald-700 h-11">
-                {saving ? <><Loader2 className="w-4 h-4 mr-1.5 animate-spin" /> Saving...</> : <><ShieldCheck className="w-4 h-4 mr-1.5" /> Save & Connect</>}
-              </Button>
-            </CardContent>
-          </Card>
-        )}
 
         {/* Steps */}
         <Card className="bg-card/95 backdrop-blur border border-border shadow-2xl">
@@ -165,18 +87,14 @@ export function SetupWizard() {
                 <span className="text-sm font-bold text-emerald-700">1</span>
               </div>
               <div className="flex-1 min-w-0">
-                <p className="font-medium text-slate-900 text-sm sm:text-base">Create Google Sheet & Add Apps Script</p>
+                <p className="font-medium text-slate-900 text-sm sm:text-base">Create a Firebase Project</p>
                 <p className="text-xs text-slate-600 mt-1">
                   Go to{' '}
-                  <a href="https://sheets.new" target="_blank" rel="noreferrer" className="text-emerald-600 hover:underline inline-flex items-center gap-0.5">
-                    sheets.new <ExternalLink className="w-3 h-3" />
+                  <a href="https://console.firebase.google.com" target="_blank" rel="noreferrer" className="text-emerald-600 hover:underline">
+                    console.firebase.google.com
                   </a>{' '}
-                  → Extensions → Apps Script → Paste code from{' '}
-                  <code className="bg-slate-100 px-1 py-0.5 rounded text-[10px]">apps-script/code.gs</code>
+                  → Add project → Enable Firestore Database.
                 </p>
-                <Button size="sm" variant="outline" onClick={copyCode} className="mt-2 h-7 text-xs">
-                  {copied ? <><CheckCircle2 className="w-3 h-3 mr-1" /> Copied!</> : <><Copy className="w-3 h-3 mr-1" /> Copy file path</>}
-                </Button>
               </div>
             </div>
 
@@ -186,11 +104,9 @@ export function SetupWizard() {
                 <span className="text-sm font-bold text-emerald-700">2</span>
               </div>
               <div className="flex-1 min-w-0">
-                <p className="font-medium text-slate-900 text-sm sm:text-base">Deploy as Web App</p>
+                <p className="font-medium text-slate-900 text-sm sm:text-base">Generate Service Account Key</p>
                 <p className="text-xs text-slate-600 mt-1">
-                  In Apps Script: Deploy → New deployment → Web app<br />
-                  Execute as: <strong>Me</strong> · Who has access: <strong>Anyone</strong><br />
-                  Copy the Web App URL (ends with <code className="bg-slate-100 px-1 py-0.5 rounded text-[10px]">/exec</code>)
+                  Project Settings → Service accounts → Generate new private key → Download JSON.
                 </p>
               </div>
             </div>
@@ -203,11 +119,11 @@ export function SetupWizard() {
               <div className="flex-1 min-w-0">
                 <p className="font-medium text-slate-900 text-sm sm:text-base">Set Environment Variable</p>
                 <p className="text-xs text-slate-600 mt-1">
-                  Set <code className="bg-slate-900 text-emerald-400 px-1.5 py-0.5 rounded text-[10px]">APPS_SCRIPT_URL</code> in your deployment:
+                  Set <code className="bg-slate-900 text-emerald-400 px-1.5 py-0.5 rounded text-[10px]">FIREBASE_SERVICE_ACCOUNT_BASE64</code> in your deployment:
                 </p>
                 <div className="mt-2 bg-slate-900 rounded-lg p-3 font-mono text-[10px] sm:text-xs text-slate-300 overflow-x-auto">
                   <div className="text-slate-500"># Vercel / Render Environment Variables:</div>
-                  <div className="mt-1 break-all"><span className="text-emerald-400">APPS_SCRIPT_URL</span>=<span className="text-amber-300">https://script.google.com/macros/s/AKfycb.../exec</span></div>
+                  <div className="mt-1 break-all"><span className="text-emerald-400">FIREBASE_SERVICE_ACCOUNT_BASE64</span>=<span className="text-amber-300">base64-encoded-service-account-json</span></div>
                 </div>
                 <p className="text-xs text-slate-500 mt-2">
                   After setting this, the app will automatically detect it and load. No need to refresh manually.
@@ -222,7 +138,7 @@ export function SetupWizard() {
               </Button>
               <p className="text-xs text-slate-500 text-center mt-2">
                 <Cloud className="w-3 h-3 inline mr-1" />
-                Multi-device ready · Data saved to Google Sheets · Free on Render/Vercel
+                Multi-device ready · Data stored in Firebase Firestore · Free on Render/Vercel
               </p>
             </div>
           </CardContent>

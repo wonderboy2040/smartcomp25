@@ -21,7 +21,7 @@ import { safeJsonParse } from '@/lib/utils'
 export async function GET(req: NextRequest) {
   try {
     if (!isConfigured()) {
-      return NextResponse.json({ error: 'APPS_SCRIPT_URL not configured' }, { status: 503 })
+      return NextResponse.json({ error: 'Firebase not configured' }, { status: 503 })
     }
 
     const url = new URL(req.url)

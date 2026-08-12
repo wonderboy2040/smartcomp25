@@ -36,7 +36,7 @@ export async function POST(req: NextRequest) {
 
   try {
     if (!isConfigured()) {
-      return NextResponse.json({ error: 'APPS_SCRIPT_URL not configured' }, { status: 503 })
+      return NextResponse.json({ error: 'Firebase not configured' }, { status: 503 })
     }
 
     const today = new Date()

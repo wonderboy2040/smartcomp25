@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { isConfigured, testConnection } from '@/lib/sheets-client'
 import {
-  getAppsScriptUrl,
   getAppPin,
   isFirebaseMode,
   clearRuntimeConfigCache,
@@ -12,23 +11,16 @@ import { dirname } from 'path'
 // GET /api/config - check if app is configured (for setup wizard)
 export async function GET() {
   const firebaseMode = isFirebaseMode()
-  const url = getAppsScriptUrl()
   return NextResponse.json({
     configured: isConfigured(),
-    backend: firebaseMode ? 'firestore' : 'apps-script',
+    backend: 'firestore',
     firebaseConfigured: firebaseMode,
     pinRequired: !!getAppPin(),
-    urlPreview: firebaseMode ? 'firestore (in-process SDK)' : url ? maskUrl(url) : null,
-    endsWithExec: firebaseMode ? true : !!url && url.includes('/exec'),
+    urlPreview: firebaseMode ? 'firestore (in-process SDK)' : null,
+    endsWithExec: true,
     // Desktop-mode flags so the Settings panel can show a "Change Cloud URL" UI
     runtimeConfigActive: !!process.env.SMARTCOMP_CONFIG_PATH,
   })
-}
-
-function maskUrl(url: string): string {
-  if (!url) return '(empty)'
-  if (url.length <= 70) return url
-  return url.slice(0, 40) + '...' + url.slice(-30)
 }
 
 // POST /api/config - test connection OR save runtime config (desktop mode)
@@ -41,7 +33,7 @@ export async function POST(req: NextRequest) {
   } catch {}
 
   // If the desktop app is sending a save request, persist to the runtime config file
-  if (configPath && body && (body.appsScriptUrl !== undefined || body.appPin !== undefined || body.firebaseServiceAccountBase64 !== undefined)) {
+  if (configPath && body && (body.appPin !== undefined || body.firebaseServiceAccountBase64 !== undefined)) {
     try {
       const dir = dirname(configPath)
       if (!existsSync(dir)) mkdirSync(dir, { recursive: true })
@@ -51,9 +43,6 @@ export async function POST(req: NextRequest) {
         ? JSON.parse(readFileSync(configPath, 'utf-8'))
         : {}
 
-      if (typeof body.appsScriptUrl === 'string') {
-        existing.appsScriptUrl = body.appsScriptUrl.trim() || undefined
-      }
       if (typeof body.appPin === 'string') {
         existing.appPin = body.appPin.trim() || undefined
       }

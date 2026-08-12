@@ -1,32 +1,19 @@
 /**
- * Server-side data layer — Firestore backend (ULTRA FAST v6.0 Firebase Edition)
+ * Server-side data layer — Firestore backend (Firebase-only)
  *
- * WHAT CHANGED (v6.0 Firebase):
- *   The previous version talked to Google Sheets via an Apps Script web app.
- *   That added 6-8 s cold-start latency on every read. This version uses the
- *   Firebase Admin SDK to talk to Firestore directly from the Next.js server
- *   process — typical reads are <100 ms, writes are <200 ms, and there are
- *   no HTTP round-trips, no auth-token refreshes, no circuit breakers needed.
- *
- * WHAT STAYED THE SAME:
- *   - Every exported function signature is identical to the old sheets-client.
- *     All 60+ /api routes and 30+ panel components continue to work unchanged.
- *   - Soft-delete semantics: rows are marked `deleted: true`, never removed.
- *   - replaceAll() is still permanently blocked.
- *   - Write-through cache: patches cached lists in place so the next GET is
- *     instant. Cache TTL is now 60s (was 120s) because Firestore reads are
- *     cheap enough that we can afford to refresh more often.
- *   - Same `SheetRow` type, same `sanitizeRowData`, same return shapes.
+ * This module talks directly to Firebase Firestore via the Firebase Admin
+ * SDK from the Next.js server process. There is no Firebase Firestore / Apps
+ * Script dependency at all.
  *
  * SCHEMA:
- *   Each Apps-Script "sheet" maps to a Firestore collection with the same
- *   name (Invoices, Items, Customers, ...). Each row is a doc whose doc-ID
+ *   Each collection maps to a Firestore collection with the same name
+ *   (Invoices, Items, Customers, ...). Each row is a doc whose doc-ID
  *   equals the row's `id` field. The `deleted` field is stored as a boolean.
  */
 
 import { getDb, pingFirestore, getInitError, isFirebaseConfigured } from '@/lib/firebase'
-import { getAppsScriptUrl, getAppPin } from '@/lib/runtime-config'
-export { getAppsScriptUrl, getAppPin, isFirebaseMode } from '@/lib/runtime-config'
+import { getAppPin } from '@/lib/runtime-config'
+export { getAppPin, isFirebaseMode } from '@/lib/runtime-config'
 
 // ===== CACHE: LRU with 60s TTL + 300 max =====
 type CacheEntry = { data: any; expires: number; hits: number }
@@ -289,23 +276,12 @@ function invalidateAggregates() {
 export type SheetRow = Record<string, unknown>
 
 export function isConfigured(): boolean {
-  // Firebase mode (preferred)
-  if (isFirebaseConfigured()) return true
-  // Legacy Apps Script mode (still works for users who haven't migrated)
-  const url = getAppsScriptUrl()
-  return !!url && url.includes('/exec')
+  return isFirebaseConfigured()
 }
 
 export function getConfigError(): string | null {
   if (isFirebaseConfigured()) return null
-  const url = getAppsScriptUrl()
-  if (!url) {
-    return 'Firebase credentials not set. Set FIREBASE_SERVICE_ACCOUNT_BASE64 (or FIREBASE_PROJECT_ID + FIREBASE_CLIENT_EMAIL + FIREBASE_PRIVATE_KEY) on Render, OR paste them via the in-app Setup Wizard.'
-  }
-  if (!url.includes('/exec')) {
-    return 'APPS_SCRIPT_URL must end with /exec. Or set FIREBASE_* env vars to switch to the fast Firebase backend.'
-  }
-  return null
+  return 'Firebase credentials not set. Set FIREBASE_SERVICE_ACCOUNT_BASE64 (or FIREBASE_PROJECT_ID + FIREBASE_CLIENT_EMAIL + FIREBASE_PRIVATE_KEY) on Render, OR paste them via the in-app Setup Wizard.'
 }
 
 // ===== SANITIZATION =====
@@ -344,12 +320,7 @@ function generateId(sheet: string): string {
   return `${prefix}_${ts}_${rand}`
 }
 
-// ===== TYPE COERCION =====
-// Firestore stores numbers, booleans, strings natively. The old Apps Script
-// backend always returned strings (Sheets cells are strings). To preserve
-// backward compat with code that does `Number(inv.grandTotal) || 0`, we
-// leave the values as-is (Firestore gives us proper numbers — `Number(123)`
-// is still `123`, no harm done). The /api routes already coerce with Number().
+// ===== ROW MAPPING =====
 function docToRow(doc: any): any {
   if (!doc || !doc.exists) return null
   const data = doc.data() || {}
@@ -359,11 +330,10 @@ function docToRow(doc: any): any {
 // ===== CORE CRUD =====
 
 /**
- * List rows from a sheet (Firestore collection).
+ * List rows from a collection (Firestore).
  * Supports optional filter (`field=value`), search (substring across all
  * fields), and includeDeleted flag. Filter and search are applied client-side
- * after the fetch — Firestore query index requirements would otherwise make
- * every new filter field a deployment hassle.
+ * after the fetch.
  */
 export async function listRows<T = any>(
   sheet: string,
@@ -381,11 +351,6 @@ export async function listRows<T = any>(
 
   const db = await getDb()
   if (!db) return [] as T[]
-
-  // Legacy Apps Script fallback — kept so old deployments don't break.
-  if (!isFirebaseConfigured() && getAppsScriptUrl()) {
-    return listRowsViaAppsScript<T>(sheet, options, cacheKey, useCache)
-  }
 
   try {
     const snapshot = await db.collection(sheet).get()
@@ -626,7 +591,7 @@ export async function getDashboardStats(): Promise<any> {
   const cached = getCached<any>(cacheKey)
   if (cached) return cached
 
-  // Fetch all sheets we need in parallel — Firestore handles this in <500ms.
+  // Fetch all collections we need in parallel — Firestore handles this in <500ms.
   const [items, customers, suppliers, invoices, quotations, payments, enquiries, jobs, servicePayments, expenses] = await Promise.all([
     listRows<any>('Items').catch(() => []),
     listRows<any>('Customers').catch(() => []),
@@ -755,47 +720,14 @@ export async function testConnection(): Promise<{ success: boolean; message: str
       return { success: false, message: e?.message || 'Firestore connection failed' }
     }
   }
-
-  // Legacy Apps Script fallback
-  const url = getAppsScriptUrl()
-  if (!url) {
-    return { success: false, message: 'Neither Firebase credentials nor APPS_SCRIPT_URL is set.' }
-  }
-  if (!url.includes('/exec')) {
-    return { success: false, message: 'APPS_SCRIPT_URL must end with /exec' }
-  }
-  try {
-    const res = await fetch(url + '?action=test&pin=' + encodeURIComponent(getAppPin() || ''), {
-      method: 'GET',
-      redirect: 'follow',
-      signal: AbortSignal.timeout(8000),
-    })
-    if (!res.ok) return { success: false, message: `Apps Script HTTP ${res.status}` }
-    const json: any = await res.json().catch(() => null)
-    return json?.success
-      ? { success: true, message: 'Connected to Google Sheets (legacy mode)' }
-      : { success: false, message: json?.error || 'Apps Script test failed' }
-  } catch (e: any) {
-    return { success: false, message: e?.message || 'Connection failed' }
-  }
+  return { success: false, message: 'Firebase credentials not set.' }
 }
 
 export function getConfiguredUrlPreview(): { configured: boolean; urlPreview: string | null; endsWithExec: boolean } {
-  // In Firebase mode, there is no URL — return a synthetic preview so the
-  // Settings panel still shows something useful.
   if (isFirebaseConfigured()) {
     return { configured: true, urlPreview: 'firestore (in-process SDK)', endsWithExec: true }
   }
-  const url = getAppsScriptUrl()
-  if (!url) {
-    return { configured: false, urlPreview: null, endsWithExec: false }
-  }
-  const urlStr = String(url).trim()
-  return {
-    configured: true,
-    urlPreview: urlStr.length <= 70 ? urlStr : urlStr.slice(0, 40) + '...' + urlStr.slice(-30),
-    endsWithExec: urlStr.includes('/exec'),
-  }
+  return { configured: false, urlPreview: null, endsWithExec: false }
 }
 
 export async function seedData(): Promise<any> {
@@ -1219,7 +1151,7 @@ export function getCacheStats() {
     ttl: CACHE_TTL,
     ultraFast: true,
     version: '6.0',
-    backend: isFirebaseConfigured() ? 'firestore' : 'apps-script',
+    backend: 'firestore',
     circuitBreaker: {
       active: false,
       failures: 0,
@@ -1228,58 +1160,11 @@ export function getCacheStats() {
   }
 }
 
-// ===== ULTRA-ULTRA FAST v6.0 - aliases for backward compat =====
-// The old code had both createInvoiceFull and createInvoiceUltra as separate
-// functions (Ultra did client-side number gen). With Firestore they're now
-// identical — kept both names so existing /api routes don't need editing.
+// ===== ALIASES for backward compat =====
 export async function createInvoiceUltra(data: any): Promise<any> {
   return createInvoiceFull(data)
 }
 
 export async function createQuotationUltra(data: any): Promise<any> {
   return createQuotationFull(data)
-}
-
-// ===== LEGACY APPS SCRIPT FALLBACK =====
-// Only used when FIREBASE_* env vars are NOT set AND APPS_SCRIPT_URL is.
-// This preserves backward compat for the desktop .exe that may still ship
-// with the old Apps Script backend.
-async function listRowsViaAppsScript<T>(
-  sheet: string,
-  options: { filter?: string; search?: string; useCache?: boolean; includeDeleted?: boolean },
-  cacheKey: string,
-  useCache: boolean
-): Promise<T[]> {
-  const url = getAppsScriptUrl()
-  if (!url) return [] as T[]
-  const params: Record<string, string> = { action: 'list', sheet }
-  if (options.filter) params.filter = options.filter
-  if (options.search) params.search = options.search
-  if (options.includeDeleted) params.includeDeleted = 'true'
-  const u = new URL(url)
-  for (const [k, v] of Object.entries(params)) u.searchParams.set(k, v)
-  const pin = getAppPin()
-  if (pin) u.searchParams.set('pin', pin)
-
-  try {
-    const res = await fetch(u.toString(), {
-      method: 'GET',
-      redirect: 'follow',
-      signal: AbortSignal.timeout(8000),
-    })
-    if (!res.ok) return [] as T[]
-    const json: any = await res.json().catch(() => null)
-    if (!json?.success) return [] as T[]
-    let data = (json.data || []) as T[]
-    if (!options.includeDeleted && deletedTracking.size > 0) {
-      data = (data as any[]).filter((row: any) => {
-        const id = row?.id
-        return !id || !isRecentlyDeleted(sheet, String(id))
-      })
-    }
-    if (useCache) setCached(cacheKey, data)
-    return data
-  } catch {
-    return [] as T[]
-  }
 }

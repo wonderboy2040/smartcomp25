@@ -1,6 +1,6 @@
 /**
  * Zod validators for all API entities - v3.0 upgrade
- * Ensures data integrity before hitting Google Sheets
+ * Ensures data integrity before hitting Firebase Firestore
  */
 import { z } from 'zod'
 

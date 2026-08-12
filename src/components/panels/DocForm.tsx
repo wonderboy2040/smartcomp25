@@ -388,7 +388,7 @@ export function DocForm({ open, onOpenChange, docType, editing, onSaved }: DocFo
       } else {
         toast({
           title: `Creating ${docType}... ⚡`,
-          description: `Client number ${tempNumber} generated instantly - syncing to Google Sheets`,
+          description: `Client number ${tempNumber} generated instantly - syncing to Firebase`,
           duration: 2000,
         })
 
