@@ -22,7 +22,7 @@ services:
     branch: main
     rootDir: .
     # IMPORTANT: Use npm with --include=dev for tailwindcss build deps
-    buildCommand: npm install --include=dev && npm run build
+    buildCommand: ELECTRON_SKIP_BINARY_DOWNLOAD=1 npm install --include=dev && npm run build
     # Use the standalone server directly — `next start` does NOT work with
     # output: 'standalone' (Next.js 15 logs a warning and routes can misbehave).
     # The standalone bundle includes only the production deps needed to run,
@@ -37,6 +37,8 @@ services:
       - key: NODE_ENV
         value: production
       - key: NEXT_TELEMETRY_DISABLED
+        value: "1"
+      - key: ELECTRON_SKIP_BINARY_DOWNLOAD
         value: "1"
       - key: NPM_CONFIG_PRODUCTION
         value: "false"
