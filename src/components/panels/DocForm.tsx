@@ -571,16 +571,26 @@ export function DocForm({ open, onOpenChange, docType, editing, onSaved }: DocFo
       } else {
         toast({
           title: `Creating ${docType}... ⚡`,
-          description: `Client number ${tempNumber} generated instantly - syncing to Google Sheets`,
+          description: `Client number ${tempNumber} generated instantly - syncing to Firestore`,
           duration: 2000,
         })
 
-        const tempResult = await apiPostUltraFast(url, payload, { instantClose: true })
+        // v12.2: instantClose: false — wait for the POST to resolve so the
+        // caller (Invoices/Quotations panel) knows whether the create actually
+        // landed. With instantClose: true, the panel saw the temp item,
+        // called refetch(), and if the POST was failing the temp got wiped
+        // (looked like "auto-delete"). Now we await and surface real errors.
+        const tempResult = await apiPostUltraFast(url, payload, { instantClose: false })
 
         const elapsed = Date.now() - saveStart
+        // If the create failed, apiPostUltraFast returns a temp with _failed: true
+        // — surface that as an error toast so the user knows.
+        if ((tempResult as any)?._failed) {
+          throw new Error((tempResult as any)?.error || 'Failed to create — please retry')
+        }
         toast({
-          title: `${docType === 'invoice' ? 'Invoice' : 'Quotation'} created instantly! ✓ ${elapsed}ms`,
-          description: `${tempResult.number} | Profit Rs.${calc.profit.toFixed(2)} | Syncing in background`,
+          title: `${docType === 'invoice' ? 'Invoice' : 'Quotation'} created ✓ ${elapsed}ms`,
+          description: `${tempResult.number} | Profit Rs.${calc.profit.toFixed(2)} | Ultra fast`,
           duration: 5000,
         })
 

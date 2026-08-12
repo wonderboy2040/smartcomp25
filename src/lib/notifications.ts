@@ -146,12 +146,28 @@ export async function sendBirthdayGreeting(
 
 /**
  * Generate an unguessable tracking token for a job.
- * Format: 8 random alphanumeric characters.
+ * Format: 12 random alphanumeric characters (~71 bits of entropy).
+ *
+ * v12.2 FIX: Use crypto.getRandomValues instead of Math.random —
+ * Math.random() is NOT cryptographically secure and tokens were
+ * guessable. This is the public tracking URL token, so it must be
+ * unguessable to prevent unauthorized access to job details.
  */
 export function generateTrackToken(): string {
   const chars = 'abcdefghijklmnopqrstuvwxyz0123456789'
+  if (typeof crypto !== 'undefined' && crypto.getRandomValues) {
+    // 12 chars from a 36-char alphabet = ~62 bits of entropy
+    const bytes = new Uint8Array(12)
+    crypto.getRandomValues(bytes)
+    let token = ''
+    for (let i = 0; i < 12; i++) {
+      token += chars[bytes[i] % chars.length]
+    }
+    return token
+  }
+  // Fallback only when crypto is unavailable
   let token = ''
-  for (let i = 0; i < 8; i++) {
+  for (let i = 0; i < 12; i++) {
     token += chars[Math.floor(Math.random() * chars.length)]
   }
   return token

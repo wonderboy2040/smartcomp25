@@ -152,6 +152,19 @@ function loadCacheFromStorage(): void {
     for (const [key, entry] of Object.entries(parsed)) {
       const e = entry as { data: any; ts: number }
       if (!e || typeof e.ts !== 'number') continue
+      // v12.2: Don't restore entries that are way too old (>1h). Stale data
+      // is fine for instant display, but ancient data can confuse the user
+      // when a long-abandoned list briefly flashes before the fresh fetch.
+      if (Date.now() - e.ts > 60 * 60 * 1000) continue
+      // v12.2: Skip entries that contain optimistic temp items — they have
+      // IDs like "temp_..." that don't exist on the server. Restoring them
+      // would show a phantom item that then vanishes on the next refetch.
+      if (Array.isArray(e.data)) {
+        const hasTemp = e.data.some((row: any) =>
+          String(row?.id || '').startsWith('temp_') || row?._pending || row?._optimistic
+        )
+        if (hasTemp) continue
+      }
       // Restore even "stale" entries — better to show old data instantly
       // than show "Loading..." for 3 seconds. Background fetch will refresh.
       cache.set(key, e.data)
@@ -312,6 +325,27 @@ function trackDeleted(type: 'jobs' | 'payments', id: string) {
   } catch {}
 }
 
+// v12.2: Generic anti-resurrection tracking for endpoints that don't have
+// dedicated sets (invoices, quotations, items, customers, suppliers, etc.).
+// Uses a Map keyed by URL prefix → Set of deleted IDs.
+const genericDeletedMap = new Map<string, Set<string>>()
+const GENERIC_TTL = 5 * 60 * 1000 // 5 minutes
+function trackDeletedGeneric(listUrl: string, id: string) {
+  let set = genericDeletedMap.get(listUrl)
+  if (!set) {
+    set = new Set()
+    genericDeletedMap.set(listUrl, set)
+  }
+  set.add(id)
+  setTimeout(() => {
+    const s = genericDeletedMap.get(listUrl)
+    if (s) {
+      s.delete(id)
+      if (s.size === 0) genericDeletedMap.delete(listUrl)
+    }
+  }, GENERIC_TTL)
+}
+
 /**
  * Filter a list payload returned by the server, removing any IDs we have
  * locally soft-deleted within the last 5 minutes. Without this, a slow
@@ -325,16 +359,24 @@ function trackDeleted(type: 'jobs' | 'payments', id: string) {
  */
 function applyDeletedFilter(url: string, data: any): any {
   if (!Array.isArray(data)) return data
+  const listUrl = baseUrlOf(url)
   // Map URL → tracked-deleted set
   let type: 'jobs' | 'payments' | null = null
-  if (url.startsWith('/api/jobs')) type = 'jobs'
-  else if (url.startsWith('/api/payments') || url.startsWith('/api/service-payments')) type = 'payments'
-  if (!type) return data
-  const set = type === 'jobs' ? recentlyDeletedJobs : recentlyDeletedPayments
-  if (set.size === 0) return data
+  if (listUrl.startsWith('/api/jobs')) type = 'jobs'
+  else if (listUrl.startsWith('/api/payments') || listUrl.startsWith('/api/service-payments')) type = 'payments'
+
+  const dedicatedSet = type ? (type === 'jobs' ? recentlyDeletedJobs : recentlyDeletedPayments) : null
+  const genericSet = genericDeletedMap.get(listUrl)
+  if (!dedicatedSet && !genericSet) return data
+  if (dedicatedSet && dedicatedSet.size === 0 && (!genericSet || genericSet.size === 0)) return data
+
   return data.filter((row: any) => {
     const id = row?.id || row?.jobId
-    return !id || !set.has(String(id))
+    if (!id) return true
+    const sid = String(id)
+    if (dedicatedSet && dedicatedSet.has(sid)) return false
+    if (genericSet && genericSet.has(sid)) return false
+    return true
   })
 }
 
@@ -572,6 +614,11 @@ export function useFetch<T>(url: string | null, options?: RequestInit) {
   const refetch = useCallback(() => {
     if (!url) return
     timestamps.set(url, 0)
+    // v12.2: Clear stale warning + error on manual refetch — the user is
+    // explicitly asking for a fresh fetch, so don't keep showing the old
+    // "showing cached data" or error hint while the new fetch is in flight.
+    cache.delete(`__stale:${url}`)
+    cache.delete(`__error:${url}`)
     doFetch(url, optsRef.current).catch(() => {})
   }, [url, method, bodyKey])
 
@@ -983,11 +1030,17 @@ export async function apiDelete(url: string) {
 
   // Track the deleted ID so any in-flight GET that returns the row before the
   // server-side soft-delete commits is filtered out (anti-resurrection guard).
+  // v12.2: Extended to cover invoices, quotations, items, customers, suppliers
+  // too — without this, deleting an item then refreshing would briefly show
+  // the item again until the next refetch.
   if (targetId) {
     if (listUrl.startsWith('/api/jobs')) trackDeleted('jobs', String(targetId))
     else if (listUrl.startsWith('/api/payments') || listUrl.startsWith('/api/service-payments')) {
       trackDeleted('payments', String(targetId))
     }
+    // Generic anti-resurrection tracking for all other list endpoints.
+    // Uses the URL itself as the key prefix so different lists don't collide.
+    trackDeletedGeneric(listUrl, String(targetId))
   }
 
   const snapshots = new Map<string, any>()
@@ -1036,6 +1089,12 @@ export async function apiDelete(url: string) {
       } else if (listUrl.startsWith('/api/payments') || listUrl.startsWith('/api/service-payments')) {
         recentlyDeletedPayments.delete(String(targetId))
         deletedExpiry.delete(`payments:${String(targetId)}`)
+      }
+      // v12.2: Also clear generic tracking
+      const genericSet = genericDeletedMap.get(listUrl)
+      if (genericSet) {
+        genericSet.delete(String(targetId))
+        if (genericSet.size === 0) genericDeletedMap.delete(listUrl)
       }
     }
     for (const [key, snap] of snapshots) {

@@ -579,16 +579,37 @@ export function isEnquiryDay(date: Date = new Date()): boolean {
 /**
  * Shares an Invoice / Quotation / Service Invoice PDF on WhatsApp.
  *
+ * v12.3 — Professional, simple, lite template.
+ *
  * PER USER REQUIREMENT:
  * - ✅ PDF file attachment IS attached (mobile Native Web Share API)
- * - ✅ PDF is auto-downloaded on desktop + WhatsApp Web opened with details
- * - ❌ NO "View Link" / track URL / public doc link in the message text
- * - Message text is clean: shop name, doc number, amount, status, notes
+ * - ✅ PDF is auto-downloaded on desktop + WhatsApp Web opened with message
+ * - ✅ Message is professional, simple, lite — only essential info
+ * - ❌ NO clutter, NO emojis overload, NO long paragraphs
+ *
+ * Template (Invoice):
+ * ─────────────────────────
+ * Smart Computers
+ *
+ * Dear {Customer Name},
+ *
+ * Thank you for your purchase. Please find your invoice attached.
+ *
+ * Invoice: {Number}
+ * Amount: Rs. {Grand Total}
+ * Status: {Paid / Balance Due: Rs. X}
+ *
+ * For any queries, feel free to reply to this message.
+ *
+ * Thank you for choosing us.
+ * Smart Computers
+ * ─────────────────────────
  *
  * Flow:
  *   1. Fetch the PDF from the server (/api/pdf or /api/service-pdf)
  *   2. On mobile (Chrome/Safari): navigator.share() with the PDF file
- *   3. On desktop: auto-download the PDF + open wa.me with text message
+ *   3. On desktop: auto-download the PDF + copy message to clipboard +
+ *      open wa.me with text message. User attaches PDF in WhatsApp Web.
  */
 export async function shareWhatsAppPdf({
   docId,
@@ -619,7 +640,7 @@ export async function shareWhatsAppPdf({
       ? `/api/service-pdf/${docId}`
       : `/api/pdf/${docId}?type=${docType}&gstMode=${gstMode}`
 
-    if (toast) toast({ title: 'Preparing PDF for WhatsApp...', duration: 2500 })
+    if (toast) toast({ title: 'Preparing PDF for WhatsApp...', duration: 2000 })
 
     const response = await fetch(pdfUrl)
     if (!response.ok) throw new Error('Failed to generate PDF')
@@ -629,32 +650,30 @@ export async function shareWhatsAppPdf({
     const cleanPhone = String(customerPhone || '').replace(/[^\d]/g, '')
     const targetPhone = cleanPhone.length === 10 ? `91${cleanPhone}` : cleanPhone.length > 10 ? cleanPhone : ''
 
+    // ─── Professional, Simple, Lite Message Template ───
+    // v12.3: Clean, minimal, business-professional. No emoji clutter.
+    // Only essential info that complements the PDF (not duplicates everything).
     const isPaid = (amountDue ?? 0) <= 0
-    const statusText = isPaid ? 'PAID ✓' : `Balance Due: Rs. ${Number(amountDue).toFixed(2)}`
+    const due = Number(amountDue) || 0
+    const total = Number(grandTotal) || 0
+    const custName = (customerName || 'Customer').trim()
+
+    const messageText = buildProfessionalShareMessage({
+      docType,
+      docNumber,
+      customerName: custName,
+      grandTotal: total,
+      amountDue: due,
+      isPaid,
+      notes,
+    })
+
     const titleLabel = docType === 'invoice' ? 'Invoice' : docType === 'quotation' ? 'Quotation' : 'Service Invoice'
 
-    // Clean message — NO view link / track URL / public doc link.
-    // Only shop + customer + doc details (the PDF itself carries the rest).
-    // Adds a Google Review prompt ONLY when the invoice is fully paid
-    // (don't ask for a review when money is still owed).
-    const reviewPrompt = isPaid
-      ? `\n\n⭐ _Happy with our service? Please leave us a Google review — it takes 30 seconds and really helps!_\n👉 ${BUSINESS_GROWTH.googleReviewUrl}\n`
-      : ''
-    const messageText = `*Smart Computers*\n\n` +
-      `Dear *${customerName || 'Customer'}*,\n\n` +
-      `Please find attached ${titleLabel.toLowerCase()}:\n\n` +
-      `*${titleLabel} No:* ${docNumber}\n` +
-      `*Total Amount:* Rs. ${Number(grandTotal).toFixed(2)}\n` +
-      `*Status:* ${statusText}\n` +
-      `${notes ? `*Notes:* ${notes}\n` : ''}\n` +
-      `For any queries, please contact us.\n\n` +
-      `Thank you for your business! 🙏${reviewPrompt}`
-
     // 1. Try Native Web Share API (passes the actual PDF file attachment on
-    //    mobile Chrome/Safari). Note: navigator.share needs a user gesture;
-    //    the async fetch above may break that chain on some browsers, so we
-    //    catch the "user activation" error and fall through to the desktop
-    //    fallback below.
+    //    mobile Chrome/Safari). This is the ONLY path where the PDF is
+    //    auto-attached to WhatsApp — desktop browsers don't support file
+    //    sharing via Web Share API.
     if (typeof navigator !== 'undefined' && navigator.canShare && navigator.canShare({ files: [pdfFile] })) {
       try {
         await navigator.share({
@@ -662,19 +681,19 @@ export async function shareWhatsAppPdf({
           title: `${titleLabel} ${docNumber}`,
           text: messageText,
         })
-        if (toast) toast({ title: 'PDF Shared to WhatsApp ✓', duration: 3500 })
+        if (toast) toast({ title: 'Shared to WhatsApp ✓', duration: 3000 })
         return
       } catch (shareErr: any) {
         // AbortError = user cancelled the share sheet — silently return
         if (shareErr?.name === 'AbortError') return
-        // Any other error (including "Must be handling a user gesture") —
-        // fall through to the download + WhatsApp Web fallback below.
+        // Any other error — fall through to the desktop fallback below.
         console.warn('Native share failed, falling back to download:', shareErr?.message)
       }
     }
 
-    // 2. Desktop fallback: auto-download the PDF + open WhatsApp Web with
-    //    the text message. User then attaches the downloaded PDF manually.
+    // 2. Desktop / fallback: auto-download the PDF + copy message to clipboard
+    //    + open WhatsApp Web with the text message pre-filled. User then
+    //    attaches the downloaded PDF in the WhatsApp Web chat window.
     const downloadUrl = URL.createObjectURL(blob)
     const a = document.createElement('a')
     a.href = downloadUrl
@@ -685,7 +704,19 @@ export async function shareWhatsAppPdf({
 
     setTimeout(() => {
       URL.revokeObjectURL(downloadUrl)
-    }, 2000)
+    }, 3000)
+
+    // Try to copy the message to clipboard so the user can paste it directly
+    // (some browsers block clipboard after window.open, so this is best-effort)
+    let clipboardCopied = false
+    try {
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        await navigator.clipboard.writeText(messageText)
+        clipboardCopied = true
+      }
+    } catch {
+      // Clipboard API can fail if not focused or in non-secure context
+    }
 
     const waUrl = targetPhone
       ? `https://wa.me/${targetPhone}?text=${encodeURIComponent(messageText)}`
@@ -696,8 +727,10 @@ export async function shareWhatsAppPdf({
     if (toast) {
       toast({
         title: 'PDF Downloaded & WhatsApp Opened ✓',
-        description: `Please attach ${filename} in the WhatsApp chat window`,
-        duration: 6000,
+        description: clipboardCopied
+          ? `Message copied to clipboard. Attach ${filename} in WhatsApp.`
+          : `Please attach ${filename} in the WhatsApp chat window.`,
+        duration: 7000,
       })
     }
   } catch (e: any) {
@@ -705,4 +738,77 @@ export async function shareWhatsAppPdf({
       if (toast) toast({ title: 'Share failed', description: e.message || 'Error sharing PDF', variant: 'destructive', duration: 5000 })
     }
   }
+}
+
+/**
+ * Build a professional, simple, lite WhatsApp share message.
+ *
+ * Design principles (v12.3):
+ * - Shop name as a clean header (no decorative asterisks border)
+ * - One-line greeting using the customer's first name (warmer, less formal)
+ * - Bullet-style key details (doc number, amount, status)
+ * - Optional notes line (only if the user added notes)
+ * - Soft call-to-action for queries
+ * - Professional sign-off (no emoji spam)
+ * - Google Review prompt ONLY for paid invoices (subtle, one line)
+ *
+ * The PDF itself carries the full breakdown (items, GST, totals, terms).
+ * The message is the "cover letter" — not a duplicate of the PDF.
+ */
+function buildProfessionalShareMessage(opts: {
+  docType: 'invoice' | 'quotation' | 'service'
+  docNumber: string
+  customerName: string
+  grandTotal: number
+  amountDue: number
+  isPaid: boolean
+  notes?: string
+}): string {
+  const { docType, docNumber, customerName, grandTotal, amountDue, isPaid, notes } = opts
+
+  const titleLabel =
+    docType === 'invoice' ? 'Invoice' :
+    docType === 'quotation' ? 'Quotation' :
+    'Service Invoice'
+
+  // Use first name for a warmer greeting; fall back to full name
+  const firstName = customerName.split(/\s+/)[0] || customerName
+
+  // Status line — clean and conditional
+  const statusLine = docType === 'quotation'
+    ? `Validity: 7 days`
+    : isPaid
+      ? `Status: Paid ✓`
+      : `Balance Due: Rs. ${amountDue.toFixed(2)}`
+
+  // Notes line — only if the user actually added notes
+  const notesLine = notes && String(notes).trim()
+    ? `\nNote: ${String(notes).trim()}`
+    : ''
+
+  // Google Review prompt — ONLY for paid invoices (not quotations, not unpaid)
+  const reviewLine = (docType === 'invoice' && isPaid)
+    ? `\n\nLoved our service? A quick Google review helps us a lot:\n${BUSINESS_GROWTH.googleReviewUrl}`
+    : ''
+
+  // Professional, simple, lite template
+  return (
+    `Smart Computers\n` +
+    `\n` +
+    `Hi ${firstName},\n` +
+    `\n` +
+    `Thank you for your ${docType === 'quotation' ? 'enquiry' : 'purchase'}. Please find your ${titleLabel.toLowerCase()} attached.\n` +
+    `\n` +
+    `${titleLabel}: ${docNumber}\n` +
+    `Amount: Rs. ${grandTotal.toFixed(2)}\n` +
+    statusLine +
+    notesLine +
+    `\n` +
+    `\n` +
+    `For any queries, simply reply to this message.\n` +
+    `\n` +
+    `Best regards,\n` +
+    `Smart Computers` +
+    reviewLine
+  )
 }

@@ -451,7 +451,15 @@ export async function createRow<T = any>(sheet: string, data: SheetRow): Promise
   const db = await getDb()
   if (!db) throw new Error(getInitError() || 'Firebase not initialized')
 
-  await db.collection(sheet).doc(String(sanitized.id)).set(sanitized)
+  try {
+    await db.collection(sheet).doc(String(sanitized.id)).set(sanitized)
+  } catch (e: any) {
+    // v12.2: Wrap Firestore write errors with the sheet name + id so the
+    // upstream API route's error response actually tells the user what went
+    // wrong (was a bare "Cannot use 'undefined' as a Firestore value").
+    const msg = String(e?.message || 'Unknown Firestore error')
+    throw new Error(`Failed to create ${sheet} row ${sanitized.id}: ${msg}`)
+  }
   patchListCache(sheet, sanitized, 'create')
   invalidateAggregates()
   scheduleReconcile(sheet)
@@ -466,7 +474,12 @@ export async function updateRow<T = any>(sheet: string, id: string, data: SheetR
   if (!db) throw new Error(getInitError() || 'Firebase not initialized')
 
   const ref = db.collection(sheet).doc(String(id))
-  await ref.set(sanitized, { merge: true })
+  try {
+    await ref.set(sanitized, { merge: true })
+  } catch (e: any) {
+    const msg = String(e?.message || 'Unknown Firestore error')
+    throw new Error(`Failed to update ${sheet} row ${id}: ${msg}`)
+  }
 
   const updated = mergeWithCached(sheet, id, { ...sanitized, id })
   patchListCache(sheet, updated, 'update')
@@ -861,7 +874,13 @@ function nextInvoiceNumber(prefix: string, existing: any[]): string {
     const n = parseInt(num, 10)
     if (!isNaN(n) && n > max) max = n
   }
-  return `${yearPrefix}${String(max + 1).padStart(4, '0')}`
+  // v12.2: Add a millisecond-based floor so two invoices created in the same
+  // second by different requests don't collide on the same number. The
+  // existing-list scan is the source of truth for the floor; this just adds
+  // a safety net when the list is briefly stale during concurrent creates.
+  const timeFloor = Math.max(0, Date.now() % 100000)
+  const seq = Math.max(max + 1, timeFloor)
+  return `${yearPrefix}${String(seq).padStart(4, '0')}`
 }
 
 export async function createInvoiceFull(data: {
@@ -1075,6 +1094,11 @@ export async function completeJobFull(data: {
     serviceCharge: Number(sanitized.serviceCharge) || 0,
     paidAmount: Number(sanitized.paidAmount) || 0,
     paymentMode: sanitized.paymentMode || '',
+    // v12.2: ensure paymentType + grossProfit are persisted (the jobs route
+    // passes them but they were dropped here, leading to inconsistent state
+    // when the job was re-read later).
+    paymentType: sanitized.paymentType || '',
+    grossProfit: Number(sanitized.grossProfit) || 0,
     partsProfit: Number(sanitized.partsProfit) || 0,
     serviceProfit: Number(sanitized.serviceProfit) || 0,
     warrantyDays,
@@ -1083,7 +1107,7 @@ export async function completeJobFull(data: {
     diagnosisNotes: sanitized.diagnosisNotes || '',
     notes: sanitized.notes || '',
     updatedAt: new Date().toISOString(),
-    deliveredAt: sanitized.status === 'Delivered' ? completedDate : existing.deliveredAt || '',
+    deliveredAt: sanitized.status === 'Delivered' ? completedDate : (existing.deliveredAt || ''),
   }
 
   const batch = db.batch()

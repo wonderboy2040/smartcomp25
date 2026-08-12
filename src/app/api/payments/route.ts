@@ -102,14 +102,18 @@ export async function POST(req: NextRequest) {
     })
 
     // Update customer credit balance — only reduce by what was actually due
-    const customer = await getRow<any>('Customers', invoice.customerId)
-    if (customer) {
-      const currentCredit = Number(customer.creditBalance) || 0
-      const decrement = Math.min(amt, currentCredit, currentDue)
-      if (decrement > 0) {
-        await updateRow('Customers', invoice.customerId, {
-          creditBalance: currentCredit - decrement,
-        })
+    // v12.2: Guard against undefined customerId (old invoices may not have it)
+    const customerId = String(invoice.customerId || '')
+    if (customerId) {
+      const customer = await getRow<any>('Customers', customerId).catch(() => null)
+      if (customer) {
+        const currentCredit = Number(customer.creditBalance) || 0
+        const decrement = Math.min(amt, currentCredit, currentDue)
+        if (decrement > 0) {
+          await updateRow('Customers', customerId, {
+            creditBalance: currentCredit - decrement,
+          })
+        }
       }
     }
 

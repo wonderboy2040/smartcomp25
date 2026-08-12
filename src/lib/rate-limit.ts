@@ -10,14 +10,16 @@ type RateLimitEntry = {
 
 const store = new Map<string, RateLimitEntry>()
 
-// Clean up every 5 minutes
+// v12.2: Clean up every 60s (was 5min) — under burst load the store grew
+// large and the 5min cleanup let entries pile up, slowly eating memory.
+// 60s keeps the working set tight without adding meaningful CPU overhead.
 if (typeof setInterval !== 'undefined') {
   setInterval(() => {
     const now = Date.now()
     for (const [key, entry] of store.entries()) {
       if (entry.resetAt < now) store.delete(key)
     }
-  }, 5 * 60 * 1000)
+  }, 60 * 1000)
 }
 
 interface RateLimitOptions {

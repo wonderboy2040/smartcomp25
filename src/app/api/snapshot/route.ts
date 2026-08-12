@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { listRows, isConfigured } from '@/lib/sheets-client'
+import { safeJsonParse } from '@/lib/utils'
 import { BUSINESS_GROWTH } from '@/lib/business-growth'
 
 /**
@@ -91,7 +92,10 @@ export async function GET(req: NextRequest) {
     const itemSalesMap = new Map<string, { name: string; qty: number; revenue: number }>()
     for (const inv of todayInvoices) {
       try {
-        const itemsArr = typeof inv.itemsJson === 'string' ? JSON.parse(inv.itemsJson) : (inv.itemsJson || [])
+        // v12.2: Use safeJsonParse to avoid crashes on malformed itemsJson
+        const itemsArr = typeof inv.itemsJson === 'string'
+          ? safeJsonParse<any[]>(inv.itemsJson, [])
+          : (Array.isArray(inv.itemsJson) ? inv.itemsJson : [])
         for (const it of itemsArr) {
           const key = it.name || 'Unknown'
           const cur = itemSalesMap.get(key) || { name: key, qty: 0, revenue: 0 }

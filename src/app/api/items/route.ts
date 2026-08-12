@@ -132,8 +132,21 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: validation.error }, { status: 400 })
     }
 
+    // v12.2: Name is mandatory — fail fast instead of letting Firestore write
+    // a blank item that the user then can't find in search.
+    if (!String(body?.name || '').trim()) {
+      return NextResponse.json({ error: 'Item name is required' }, { status: 400 })
+    }
+
     const item: any = await createRow('Items', {
       ...validation.data,
+      name: String(body.name).trim(),
+      sku: String(body.sku || '').trim(),
+      category: String(body.category || '').trim(),
+      description: String(body.description || '').trim(),
+      unit: String(body.unit || 'pcs').trim(),
+      hsnCode: String(body.hsnCode || '').trim(),
+      supplierId: body.supplierId ? String(body.supplierId) : '',
       gstApplicable: body.gstApplicable !== false,
       isDigitalProduct: body.isDigitalProduct === true,
       gstRate: Number(body.gstRate) || 18,
@@ -141,6 +154,7 @@ export async function POST(req: NextRequest) {
       sellingPrice: Number(body.sellingPrice) || 0,
       quantity: Number(body.quantity) || 0,
       minQuantity: Number(body.minQuantity) || 0,
+      warrantyDays: Number(body.warrantyDays) || 365,
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
     })
