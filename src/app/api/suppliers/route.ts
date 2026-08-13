@@ -42,9 +42,25 @@ export async function POST(req: NextRequest) {
     if (!check.allowed) return NextResponse.json({ error: 'Rate limited — too many writes, wait a moment' }, { status: 429 })
 
     const body = await req.json()
+
+    // v12.4: Explicit field sanitization — don't blindly spread body, which
+    // can carry undefined values (stripped by sanitizeRowData but this makes
+    // the contract explicit) and prevents accidental field injection.
+    if (!String(body?.name || '').trim()) {
+      return NextResponse.json({ error: 'Supplier name is required' }, { status: 400 })
+    }
+    if (!String(body?.phone || '').trim()) {
+      return NextResponse.json({ error: 'Supplier phone is required' }, { status: 400 })
+    }
+
     const supplier = await createRow('Suppliers', {
-      ...body,
-      whatsappNumber: body.whatsappNumber || body.phone,
+      name: String(body.name).trim(),
+      phone: String(body.phone || '').trim(),
+      whatsappNumber: String(body.whatsappNumber || body.phone || '').trim(),
+      email: String(body.email || '').trim(),
+      company: String(body.company || '').trim(),
+      address: String(body.address || '').trim(),
+      suppliedItems: String(body.suppliedItems || '').trim(),
       active: body.active !== false,
       includeInAutoEnquiry: body.includeInAutoEnquiry !== false,
     })

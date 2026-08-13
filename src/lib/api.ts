@@ -86,6 +86,66 @@ function mergePendingCreates(url: string, data: any): any {
   return missing.length > 0 ? [...missing, ...data] : data
 }
 
+// ===== RECENTLY COMMITTED ROWS — anti-eviction guard (v12.4) =====
+// When a POST completes, the real row is committed to the cache via
+// commitCreatedRow(). But the panel's onSaved() handler also calls refetch(),
+// which fires a GET. Firestore is eventually consistent — the GET may return
+// a list that does NOT include the just-created row (especially within the
+// first 1-2 seconds after the write). Without this guard, setCache() would
+// overwrite the good cache (which has the row) with the stale GET response
+// (which doesn't), making the row vanish from the UI.
+//
+// We track each committed row's real ID + data for 30 seconds. When a GET
+// response arrives for the same endpoint, we re-merge any committed rows
+// that are missing from the response — same pattern as mergePendingCreates,
+// but for rows that have already been confirmed by the POST.
+const recentlyCommittedRows = new Map<string, Map<string, { row: any; expiresAt: number }>>()
+const COMMITTED_TTL = 30 * 1000 // 30 seconds — Firestore consistency window
+
+function trackRecentlyCommitted(base: string, realId: string, row: any) {
+  let m = recentlyCommittedRows.get(base)
+  if (!m) {
+    m = new Map()
+    recentlyCommittedRows.set(base, m)
+  }
+  m.set(realId, { row, expiresAt: Date.now() + COMMITTED_TTL })
+  // Auto-cleanup after TTL
+  setTimeout(() => {
+    const mm = recentlyCommittedRows.get(base)
+    if (mm) {
+      mm.delete(realId)
+      if (mm.size === 0) recentlyCommittedRows.delete(base)
+    }
+  }, COMMITTED_TTL)
+}
+
+/**
+ * Re-merge any recently-committed rows that are missing from a GET response.
+ * This prevents a stale Firestore read from evicting a row that was just
+ * created and confirmed by a POST.
+ */
+function mergeRecentlyCommitted(url: string, data: any): any {
+  if (!Array.isArray(data)) return data
+  const base = baseUrlOf(url)
+  const m = recentlyCommittedRows.get(base)
+  if (!m || m.size === 0) return data
+  const now = Date.now()
+  const present = new Set(data.map((row: any) => String(row?.id)))
+  const missing: any[] = []
+  for (const [id, entry] of Array.from(m.entries())) {
+    if (entry.expiresAt < now) {
+      m.delete(id)
+      continue
+    }
+    if (!present.has(id)) {
+      // Don't re-merge temp items — only real committed rows
+      missing.push({ ...entry.row, _pending: false, _optimistic: false, _failed: false })
+    }
+  }
+  if (missing.length === 0) return data
+  return [...missing, ...data]
+}
+
 /**
  * Write a freshly created row into every cached list for its endpoint.
  * Replaces the optimistic placeholder when it is still there, and otherwise
@@ -98,8 +158,24 @@ function mergePendingCreates(url: string, data: any): any {
  * the real row (duplicate). The `list.some(...)` check returned early and
  * left the temp item in place. Now we explicitly filter out the temp item
  * when the real row is already present.
+ *
+ * v12.4 FIX: Track the real row ID in `recentlyCommittedRows` so that any
+ * GET response arriving within 30s cannot drop this row from the cache.
+ * This fixes the "suppliers/customers/expenses not showing after create"
+ * bug: the refetch fired by onSaved() arrives AFTER the POST completes,
+ * but Firestore is eventually consistent and may not return the new row
+ * yet. Without this guard, setCache() overwrites the good cache (which
+ * had the real row from commitCreatedRow) with the stale GET response
+ * (which is missing the row), making the row vanish.
  */
 function commitCreatedRow(base: string, tempId: string, row: any) {
+  // v12.4: Track the real row ID so doFetchWithRetry can preserve it
+  // even if the GET response (fired by a racing refetch) doesn't include it.
+  const realId = String(row?.id || '')
+  if (realId) {
+    trackRecentlyCommitted(base, realId, row)
+  }
+
   for (const key of Array.from(cache.keys())) {
     if (baseUrlOf(key) !== base || !Array.isArray(cache.get(key))) continue
     mutate<any[]>(key, (prev) => {
@@ -678,7 +754,11 @@ async function doFetchWithRetry(url: string, options?: RequestInit, attempt = 1)
     // Re-attach any create that is still in flight — the server payload cannot
     // know about it yet, and dropping it here is what made a newly added item
     // vanish from the list until the next stale refetch.
-    const data = mergePendingCreates(url, raw)
+    let data = mergePendingCreates(url, raw)
+    // v12.4: Also re-attach any recently-committed rows that the GET response
+    // is missing (Firestore is eventually consistent — a read arriving 1-2s
+    // after a write may not include the just-written row).
+    data = mergeRecentlyCommitted(url, data)
 
     // Quantum: hash check like lastCloudDataHash to skip redundant re-renders.
     // IMPORTANT: do NOT mutate lastDataHash here — setCache() is the single owner
