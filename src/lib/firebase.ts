@@ -90,7 +90,6 @@ function readDesktopConfig(): RuntimeFirebaseConfig {
 }
 
 function readConfig(): RuntimeFirebaseConfig {
-  const now = Date.now()
   // Env-var path (Render / Vercel / cloud)
   const b64 = process.env.FIREBASE_SERVICE_ACCOUNT_BASE64
   if (b64) {

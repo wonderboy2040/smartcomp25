@@ -486,19 +486,19 @@ export class AutomationEngine {
     switch (action.type) {
       case 'send_whatsapp':
         // Would call /api/whatsapp/send
-        console.log(`[Automation] WhatsApp: ${interpolate(action.config.message || action.config.template || 'Notification')}`)
+        console.info(`[Automation] WhatsApp: ${interpolate(action.config.message || action.config.template || 'Notification')}`)
         break
       case 'notify_owner':
-        console.log(`[Automation] Notify owner: ${action.config.message || 'Automation triggered'}`)
+        console.info(`[Automation] Notify owner: ${action.config.message || 'Automation triggered'}`)
         break
       case 'create_task':
-        console.log(`[Automation] Task: ${interpolate(action.config.title || 'New task')}`)
+        console.info(`[Automation] Task: ${interpolate(action.config.title || 'New task')}`)
         break
       case 'generate_report':
-        console.log(`[Automation] Generate ${action.config.type} report`)
+        console.info(`[Automation] Generate ${action.config.type} report`)
         break
       default:
-        console.log(`[Automation] Action ${action.type}`)
+        console.info(`[Automation] Action ${action.type}`)
     }
     // Simulate network
     await new Promise(r => setTimeout(r, 150))

@@ -362,6 +362,7 @@ export function PosterMakerPanel() {
               <p className="text-[10px] text-slate-500 mt-1">💡 Type product name → tap <strong>AI Generate</strong> → AI photo appears (Pollinations FLUX, free). Or upload local (no CORS issues).</p>
               {displayImage && (
                 <div className="mt-2 p-2 bg-slate-50 rounded-lg border flex items-center gap-2">
+                  {/* eslint-disable-next-line @next/next/no-img-element -- user-supplied base64/remote URL; next/image cannot optimize it */}
                   <img src={displayImage} alt="preview" className="w-12 h-12 object-contain rounded bg-white border" onError={() => setImageError(true)} onLoad={() => setImageError(false)} />
                   <div className="flex-1 min-w-0">
                     <p className="text-[11px] font-medium truncate">{product.imageBase64 ? 'Local file (base64)' : product.imageUrl}</p>
@@ -518,8 +519,9 @@ export function PosterMakerPanel() {
 
               <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', padding: `${fs(8)} ${fs(28)}`, height: fs(260) }}>
                 {displayImage ? (
-                  <img 
-                    src={displayImage} 
+                  /* eslint-disable-next-line @next/next/no-img-element -- rendered into html-to-image canvas; next/image breaks capture */
+                  <img
+                    src={displayImage}
                     alt={product.name} 
                     style={{ maxHeight: fs(240), maxWidth: '85%', objectFit: 'contain', borderRadius: fs(8) }} 
                     crossOrigin="anonymous"

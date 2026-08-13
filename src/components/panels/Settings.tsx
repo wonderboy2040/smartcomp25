@@ -14,7 +14,7 @@ import { Textarea } from '@/components/ui/textarea'
 import { Badge } from '@/components/ui/badge'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { useToast } from '@/hooks/use-toast'
-import { Store, Settings as SettingsIcon, FileSpreadsheet, RefreshCw, CheckCircle2, AlertCircle, Database, Sparkles, Code, Copy, ExternalLink, Loader2, ShieldCheck, Zap, Cloud, Send, X, Bug, Download, HardDrive, Activity, Cpu, BarChart3, FileJson, FileText, Star, Megaphone, Flame } from 'lucide-react'
+import { Store, Settings as SettingsIcon, RefreshCw, CheckCircle2, AlertCircle, Database, Sparkles, Copy, ExternalLink, Loader2, ShieldCheck, Zap, Cloud, Send, X, Download, HardDrive, Activity, Cpu, BarChart3, FileJson, FileText, Star, Megaphone, Flame } from 'lucide-react'
 import { BUSINESS_GROWTH } from '@/lib/business-growth'
 
 export function SettingsPanel() {

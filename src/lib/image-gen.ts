@@ -175,7 +175,7 @@ async function generatePollinationsGet(opts: ImageGenInput, timeoutMs: number): 
   if (opts.referrer) params.set('referrer', opts.referrer)
 
   const url = `${POLLINATIONS_BASE}/prompt/${encodeURIComponent(opts.prompt.slice(0, 500))}?${params.toString()}`
-  console.log(`[image-gen] Pollinations GET → ${url.slice(0, 120)}…`)
+  console.info(`[image-gen] Pollinations GET → ${url.slice(0, 120)}…`)
 
   const res = await fetchWithTimeout(url, { method: 'GET' }, timeoutMs)
   if (!res.ok) {
@@ -208,7 +208,7 @@ async function generatePollinationsPost(opts: ImageGenInput, timeoutMs: number):
 
   const url = `${POLLINATIONS_BASE}/prompt/${encodeURIComponent(opts.prompt.slice(0, 500))}?${params.toString()}`
 
-  console.log(`[image-gen] Pollinations POST → ${url.slice(0, 120)}…`)
+  console.info(`[image-gen] Pollinations POST → ${url.slice(0, 120)}…`)
 
   const res = await fetchWithTimeout(
     url,

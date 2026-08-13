@@ -76,7 +76,7 @@ export function DocumentHtmlViewer({ docId, docType = 'invoice', title, onClose,
     return () => {
       if (loadTimerRef.current) clearTimeout(loadTimerRef.current)
     }
-  }, [iframeUrl]) // eslint-disable-line
+  }, [iframeUrl])
 
   const handleIframeLoad = useCallback(() => {
     if (loadTimerRef.current) clearTimeout(loadTimerRef.current)

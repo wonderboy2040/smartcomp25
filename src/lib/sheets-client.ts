@@ -622,7 +622,7 @@ export async function getDashboardStats(): Promise<any> {
   const cached = getCached<any>(cacheKey)
   if (cached) return cached
 
-  const [items, customers, suppliers, invoices, quotations, payments, enquiries, jobs, servicePayments, expenses] = await Promise.all([
+  const [items, customers, suppliers, invoices, quotations, payments, enquiries, jobs, servicePayments] = await Promise.all([
     listRows<any>('Items').catch(() => []),
     listRows<any>('Customers').catch(() => []),
     listRows<any>('Suppliers').catch(() => []),
@@ -632,7 +632,6 @@ export async function getDashboardStats(): Promise<any> {
     listRows<any>('Enquiries').catch(() => []),
     listRows<any>('Jobs').catch(() => []),
     listRows<any>('ServicePayments').catch(() => []),
-    listRows<any>('Expenses').catch(() => []),
   ])
 
   const now = new Date()
@@ -761,8 +760,6 @@ export function getConfiguredUrlPreview(): { configured: boolean; urlPreview: st
 
 export async function seedData(): Promise<any> {
   const now = new Date().toISOString()
-  const shop = await getShop()
-  const prefix = shop?.invoicePrefix || 'INV'
 
   const items = [
     { id: 'item_seed_1', name: 'HP Laptop 15s', sku: 'HP-15S-001', category: 'Laptops', gstApplicable: true, gstRate: 18, costPrice: 35000, sellingPrice: 42000, quantity: 5, minQuantity: 2, unit: 'pcs', hsnCode: '8471', warrantyDays: 365, deleted: false, createdAt: now, updatedAt: now },

@@ -316,7 +316,7 @@ async function generateImage(opts: {
       noSmallFallback: mode !== 'product-image',
     },
   )
-  console.log(`[/api/poster/generate] ✓ provider=${result.provider} ${result.width}x${result.height} in ${Date.now() - startMs}ms`)
+  console.info(`[/api/poster/generate] ✓ provider=${result.provider} ${result.width}x${result.height} in ${Date.now() - startMs}ms`)
   return {
     base64: result.base64,
     contentType: result.mime,

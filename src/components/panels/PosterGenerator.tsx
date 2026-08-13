@@ -473,6 +473,7 @@ export function PosterGeneratorPanel() {
               <div className="space-y-3">
                 {/* Image preview — constrained to fit the card */}
                 <div className="rounded-xl overflow-hidden border border-slate-200 bg-slate-50 flex items-center justify-center">
+                  {/* eslint-disable-next-line @next/next/no-img-element -- runtime base64 data URL; next/image cannot optimize it */}
                   <img
                     src={current.image}
                     alt="Generated poster"
@@ -536,6 +537,7 @@ export function PosterGeneratorPanel() {
                     current?.id === p.id ? 'border-violet-500 ring-2 ring-violet-300' : 'border-slate-200 hover:border-violet-300'
                   }`}
                 >
+                  {/* eslint-disable-next-line @next/next/no-img-element -- runtime base64 data URL; next/image cannot optimize it */}
                   <img src={p.image} alt="History" className="w-full h-full object-cover" />
                 </button>
               ))}

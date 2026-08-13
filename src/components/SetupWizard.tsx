@@ -5,7 +5,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Card, CardContent } from '@/components/ui/card'
 import { useToast } from '@/hooks/use-toast'
-import { Store, ExternalLink, Copy, CheckCircle2, Loader2, AlertCircle, Sparkles, ShieldCheck, Cloud, Flame, Zap } from 'lucide-react'
+import { ExternalLink, Copy, CheckCircle2, Loader2, AlertCircle, Sparkles, ShieldCheck, Cloud, Flame, Zap } from 'lucide-react'
 
 /**
  * SetupWizard (v11.5 — Firebase only).
@@ -22,7 +22,6 @@ export function SetupWizard() {
   const { toast } = useToast()
   const [testing, setTesting] = useState(false)
   const [saving, setSaving] = useState(false)
-  const [copied, setCopied] = useState(false)
   const [copiedCmd, setCopiedCmd] = useState(false)
   const [configStatus, setConfigStatus] = useState<{ configured: boolean; runtimeConfigActive?: boolean } | null>(null)
   const [b64Input, setB64Input] = useState('')

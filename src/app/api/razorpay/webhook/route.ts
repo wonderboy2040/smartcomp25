@@ -69,7 +69,7 @@ export async function POST(req: NextRequest) {
           const existingPayments = await listRows<any>('Payments')
           const alreadyRecorded = existingPayments.find((p) => String(p.reference || '') === String(payload.id || ''))
           if (alreadyRecorded) {
-            console.log(`[Razorpay Webhook] Payment ${payload.id} already recorded — skipping`)
+            console.info(`[Razorpay Webhook] Payment ${payload.id} already recorded — skipping`)
             return NextResponse.json({ success: true, duplicate: true })
           }
 
@@ -110,7 +110,7 @@ export async function POST(req: NextRequest) {
             }
           }
 
-          console.log(`[Razorpay Webhook] Payment captured: Rs.${amount} for ${invoiceNumber}`)
+          console.info(`[Razorpay Webhook] Payment captured: Rs.${amount} for ${invoiceNumber}`)
         }
       }
     }

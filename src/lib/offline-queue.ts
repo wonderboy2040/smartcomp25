@@ -199,10 +199,10 @@ export async function processQueue(): Promise<{ success: number; failed: number 
 // Auto-sync when online
 if (typeof window !== 'undefined') {
   window.addEventListener('online', () => {
-    console.log('Back online, processing offline queue...')
+    console.info('Back online, processing offline queue...')
     processQueue().then(result => {
       if (result.success > 0) {
-        console.log(`Synced ${result.success} offline operations`)
+        console.info(`Synced ${result.success} offline operations`)
         // Could show toast here
         if ('Notification' in window && Notification.permission === 'granted') {
           new Notification(`SmartComp: Synced ${result.success} operations`)
