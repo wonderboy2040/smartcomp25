@@ -47,6 +47,14 @@ export function PurchaseOrdersPanel() {
         duration: 5000,
       })
       refetch()
+      // v12.6: Also invalidate Items + Dashboard so Stock panel and dashboard
+      // reflect the new quantities immediately (receive endpoint updates
+      // item.quantity + costPrice server-side).
+      try {
+        const { invalidate } = await import('@/lib/api')
+        invalidate('/api/items')
+        invalidate('/api/dashboard')
+      } catch {}
     } catch (e: any) {
       toast({ title: 'Receive failed', description: e.message, variant: 'destructive', duration: 6000 })
     }

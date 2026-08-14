@@ -68,6 +68,9 @@ const PUBLIC_PATHS = [
   '/api/razorpay/webhook',
   '/api/health',
   '/api/poster/debug',  // Public diagnostic — tests ZAI API connectivity from the server (no auth needed)
+  '/portal',             // Customer self-service portal — public (phone-gated, no PIN)
+  '/api/portal',         // Portal data endpoint — public (phone-gated)
+  '/api/portal/pay',     // Portal payment endpoint — public (phone-gated + Razorpay)
   // SECURITY: /api/export removed from PUBLIC_PATHS — it dumps all 16 sheets
   // (Customers PII, PersonalExpenditure, Settings with PINs, etc.) in JSON/CSV.
   // Now requires the auth cookie like every other /api/* route.
@@ -77,6 +80,7 @@ function isPublic(pathname: string): boolean {
   if (PUBLIC_PATHS.includes(pathname)) return true
   if (PUBLIC_PATHS.some(p => pathname.startsWith(p + '/'))) return true
   if (pathname.startsWith('/track')) return true
+  if (pathname.startsWith('/portal')) return true
   if (pathname.startsWith('/_next/')) return true
   if (pathname.startsWith('/favicon')) return true
   if (pathname.startsWith('/icon-')) return true
