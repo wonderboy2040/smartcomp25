@@ -6,12 +6,15 @@ import { cronLimiter, getClientIp } from '@/lib/rate-limit'
 
 // Cron job: Auto-create enquiries on 1st and 15th of month
 // Vercel cron config in vercel.json: "0 10 1,15 * *"
-// Vercel auto-injects Authorization: Bearer ${VERCEL_CRON_SECRET} for cron calls.
+// Vercel Cron only ever issues GET and auto-injects
+// Authorization: Bearer ${VERCEL_CRON_SECRET}, so GET must be supported.
 // On Render / external cron, set CRON_SECRET explicitly and add the header.
 //
-// SECURITY: Either CRON_SECRET or VERCEL_CRON_SECRET must match. GET is rejected.
+// SECURITY: Either CRON_SECRET or VERCEL_CRON_SECRET must match. The secret
+// travels in the Authorization header, which a browser cannot set cross-origin,
+// so GET carries no CSRF risk. GET has no dev-mode bypass — always needs a secret.
 
-export async function POST(req: NextRequest) {
+function verifyCron(req: NextRequest, allowDevBypass: boolean): NextResponse | null {
   const ip = getClientIp(req)
   const check = cronLimiter(ip)
   if (!check.allowed) return NextResponse.json({ error: 'Rate limited' }, { status: 429 })
@@ -19,21 +22,36 @@ export async function POST(req: NextRequest) {
   // Accept either CRON_SECRET (custom) or VERCEL_CRON_SECRET (auto-injected by Vercel cron)
   const secrets = [process.env.CRON_SECRET, process.env.VERCEL_CRON_SECRET].filter(Boolean) as string[]
   if (secrets.length === 0) {
-    if (process.env.NODE_ENV === 'production') {
+    if (process.env.NODE_ENV === 'production' || !allowDevBypass) {
       return NextResponse.json(
         { error: 'No CRON_SECRET or VERCEL_CRON_SECRET configured — cron disabled' },
         { status: 503 }
       )
     }
     console.warn('[cron/auto-enquiry] No cron secret set (dev mode) — allowing request')
-  } else {
-    const authHeader = req.headers.get('authorization') || ''
-    const ok = secrets.some((s) => authHeader === `Bearer ${s}`)
-    if (!ok) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-    }
+    return null
   }
 
+  const authHeader = req.headers.get('authorization') || ''
+  const ok = secrets.some((s) => authHeader === `Bearer ${s}`)
+  if (!ok) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  return null
+}
+
+export async function POST(req: NextRequest) {
+  const denied = verifyCron(req, true)
+  if (denied) return denied
+  return runAutoEnquiryCron()
+}
+
+// Vercel Cron issues GET only — supported, but always requires the secret.
+export async function GET(req: NextRequest) {
+  const denied = verifyCron(req, false)
+  if (denied) return denied
+  return runAutoEnquiryCron()
+}
+
+async function runAutoEnquiryCron() {
   try {
     if (!isConfigured()) {
       return NextResponse.json({ error: 'Firebase not configured' }, { status: 503 })
@@ -115,11 +133,4 @@ export async function POST(req: NextRequest) {
   } catch (e: any) {
     return NextResponse.json({ error: e?.message }, { status: 500 })
   }
-}
-
-export async function GET() {
-  return NextResponse.json(
-    { error: 'Method Not Allowed — use POST with Authorization: Bearer <CRON_SECRET>' },
-    { status: 405, headers: { Allow: 'POST' } }
-  )
 }

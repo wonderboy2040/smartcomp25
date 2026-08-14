@@ -128,7 +128,7 @@ function setCached(key: string, data: any) {
   cache.set(key, { data, expires: Date.now() + CACHE_TTL, hits: 0 })
 }
 
-function invalidateCache(sheet?: string) {
+export function invalidateCache(sheet?: string) {
   if (!sheet) {
     cache.clear()
     quantumMemCache.clear()

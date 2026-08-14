@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useMemo } from 'react'
+import { useState, useEffect, useMemo, useCallback } from 'react'
 import { useFetch, apiPost, apiPut, asArray } from '@/lib/api'
 import { safeJsonParse } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
@@ -18,7 +18,8 @@ import {
 import { useToast } from '@/hooks/use-toast'
 import { computeInvoice, formatCurrency, calculateProfitMargin, type LineItem } from '@/lib/calc'
 import { Badge } from '@/components/ui/badge'
-import { Plus, Trash2, Search, FileText, AlertTriangle, TrendingUp, Package, IndianRupee, User, CreditCard, UserPlus, KeyRound, Hash } from 'lucide-react'
+import { Plus, Trash2, Search, FileText, AlertTriangle, TrendingUp, Package, IndianRupee, User, CreditCard, UserPlus, KeyRound, Hash, ScanLine } from 'lucide-react'
+import { BarcodeScanner } from '@/components/BarcodeScanner'
 
 interface DocFormProps {
   open: boolean
@@ -285,6 +286,8 @@ export function DocForm({ open, onOpenChange, docType, editing, onSaved }: DocFo
   const { data: stockItemsRaw } = useFetch<any[]>('/api/items', undefined)
   const stockItems = useMemo(() => asArray<any>(stockItemsRaw), [stockItemsRaw])
   const [showItemPicker, setShowItemPicker] = useState(false)
+  const [showBarcodeScanner, setShowBarcodeScanner] = useState(false)
+  const [barcodeSearching, setBarcodeSearching] = useState(false)
 
   // Custom item state — now includes description & specification
   const [customItem, setCustomItem] = useState({
@@ -397,6 +400,29 @@ export function DocForm({ open, onOpenChange, docType, editing, onSaved }: DocFo
     }
     return { keys, serials }
   }, [items])
+
+  // Barcode scan handler — looks up item by barcode/SKU, adds it directly if found
+  const handleBarcodeScan = async (barcode: string) => {
+    setShowBarcodeScanner(false)
+    setBarcodeSearching(true)
+    try {
+      const res = await fetch(`/api/items?barcode=${encodeURIComponent(barcode)}`)
+      const data = await res.json()
+      const list = Array.isArray(data) ? data : data?.data || []
+      if (list.length > 0) {
+        addStockItem(list[0])
+      } else {
+        // Put barcode in search box so user can see what was scanned
+        setItemSearch(barcode)
+        setShowItemPicker(true)
+        toast({ title: `Barcode scanned: ${barcode}`, description: 'Item not found in stock — search manually or add custom item', variant: 'destructive' })
+      }
+    } catch {
+      toast({ title: 'Lookup failed', description: 'Could not search for scanned barcode', variant: 'destructive' })
+    } finally {
+      setBarcodeSearching(false)
+    }
+  }
 
   const addStockItem = (item: any) => {
     if (docType === 'invoice' && Number(item.quantity) <= 0) {
@@ -743,6 +769,10 @@ export function DocForm({ open, onOpenChange, docType, editing, onSaved }: DocFo
               </div>
               <div className="flex gap-2">
                 <Badge variant="outline" className="bg-white text-slate-700 border-slate-200 font-bold">Subtotal: {formatCurrency(calc.subtotal)}</Badge>
+                <Button size="sm" variant="outline" onClick={() => setShowBarcodeScanner(true)} disabled={barcodeSearching} className="h-9 border-slate-300 text-slate-700 font-semibold" title="Scan barcode to add item">
+                  {barcodeSearching ? <span className="w-4 h-4 mr-1 border-2 border-slate-400 border-t-transparent rounded-full animate-spin inline-block" /> : <ScanLine className="w-4 h-4 mr-1" />}
+                  Scan
+                </Button>
                 <Button size="sm" onClick={() => setShowItemPicker(true)} className="h-9 bg-slate-900 hover:bg-slate-800 text-white font-semibold"><Plus className="w-4 h-4 mr-1" /> Add from Stock</Button>
               </div>
             </div>
@@ -1163,6 +1193,15 @@ export function DocForm({ open, onOpenChange, docType, editing, onSaved }: DocFo
           setCustomerId(customer.id)
         }}
       />
+
+      {/* Barcode / QR scanner */}
+      {showBarcodeScanner && (
+        <BarcodeScanner
+          onScan={handleBarcodeScan}
+          onClose={() => setShowBarcodeScanner(false)}
+          hint="Point at product barcode or QR code to add to invoice"
+        />
+      )}
     </Dialog>
   )
 }

@@ -7,6 +7,7 @@ import { z } from 'zod'
 export const itemSchema = z.object({
   name: z.string().min(1, 'Name required').max(200),
   sku: z.string().max(100).optional(),
+  barcode: z.string().max(100).optional(),
   category: z.string().max(100).optional(),
   description: z.string().max(1000).optional(),
   gstApplicable: z.boolean().optional(),

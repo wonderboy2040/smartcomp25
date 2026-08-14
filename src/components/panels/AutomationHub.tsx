@@ -81,8 +81,11 @@ export function AutomationHubPanel() {
   const stats = useMemo(() => {
     const enabled = rules.filter(r => r.enabled).length
     const totalRuns = rules.reduce((s, r) => s + (r.stats?.totalRuns || 0), 0)
-    const avgSuccess = rules.length > 0
-      ? rules.reduce((s, r) => s + (r.stats?.successRate ?? 100), 0) / rules.length
+    // Average only over rules that have actually run — otherwise unrun rules
+    // drag a seeded default into the headline number.
+    const ranRules = rules.filter(r => (r.stats?.totalRuns || 0) > 0)
+    const avgSuccess = ranRules.length > 0
+      ? ranRules.reduce((s, r) => s + (r.stats?.successRate ?? 0), 0) / ranRules.length
       : 0
     const within24h = (ts: string) => (Date.now() - new Date(ts).getTime()) / 3_600_000 <= 24
     return {
@@ -276,7 +279,7 @@ export function AutomationHubPanel() {
                           <Badge variant="outline" className={`text-[10px] border ${CATEGORY_TINTS[rule.category] ?? neutralTint}`}>{rule.category}</Badge>
                           <Badge variant="outline" className="text-[10px]"><Timer className="w-3 h-3 mr-1" />{(rule.trigger?.type ?? 'manual').replace(/_/g, ' ')}</Badge>
                           <Badge variant="outline" className="text-[10px]"><Zap className="w-3 h-3 mr-1" />{actionCount} action{actionCount === 1 ? '' : 's'}</Badge>
-                          <Badge variant="outline" className="text-[10px]">{rule.stats?.totalRuns ?? 0} runs • {rule.stats?.successRate ?? 100}% success</Badge>
+                          <Badge variant="outline" className="text-[10px]">{rule.stats?.totalRuns ?? 0} runs{(rule.stats?.totalRuns ?? 0) > 0 ? ` • ${rule.stats?.successRate ?? 0}% success` : ''}</Badge>
                         </div>
 
                         <div className="flex flex-wrap gap-2 mt-3">

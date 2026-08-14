@@ -31,7 +31,7 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
     const { id } = await params
     const body = await req.json()
     const data: any = {}
-    const fields = ['name', 'sku', 'category', 'description', 'unit', 'hsnCode', 'supplierId']
+    const fields = ['name', 'sku', 'barcode', 'category', 'description', 'unit', 'hsnCode', 'supplierId']
     for (const f of fields) {
       if (body[f] !== undefined) data[f] = body[f]
     }

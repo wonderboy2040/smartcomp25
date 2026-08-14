@@ -10,30 +10,40 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { formatCurrency } from '@/lib/calc'
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, LineChart, Line, Legend } from 'recharts'
-import { TrendingUp, Package, AlertTriangle, Wallet, BarChart3, Clock, ArrowUpRight, ArrowDownRight } from 'lucide-react'
+import { TrendingUp, Package, AlertTriangle, Wallet, BarChart3, Clock, ArrowUpRight, ArrowDownRight, FileSpreadsheet, Download, AlertCircle } from 'lucide-react'
 
 
 export function ReportsPanel() {
   const [range, setRange] = useState('monthly')
   const [months, setMonths] = useState('6')
   const [cashDate, setCashDate] = useState(new Date().toISOString().slice(0, 10))
-  const [activeReport, setActiveReport] = useState<'sales' | 'topitems' | 'aging' | 'cashflow'>('sales')
+  const [activeReport, setActiveReport] = useState<'sales' | 'topitems' | 'aging' | 'cashflow' | 'gst'>('sales')
+
+  // Default the GST period to last month — the one you'd normally be filing.
+  const [gstMonth, setGstMonth] = useState(() => {
+    const d = new Date()
+    d.setMonth(d.getMonth() - 1)
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
+  })
 
   const trendQuery = activeReport === 'sales' ? `/api/reports/sales-trend?range=${range}&months=${months}` : null
   const topItemsQuery = activeReport === 'topitems' ? `/api/reports/top-items?months=${months}&limit=20` : null
   const agingQuery = activeReport === 'aging' ? `/api/reports/receivables-aging` : null
   const cashQuery = activeReport === 'cashflow' ? `/api/reports/cash-flow?date=${cashDate}` : null
+  const gstQuery = activeReport === 'gst' ? `/api/reports/gstr1?month=${gstMonth}` : null
 
   const { data: trendData, loading: trendLoading } = useFetch<any>(trendQuery, undefined)
   const { data: topItemsData, loading: topLoading } = useFetch<any>(topItemsQuery, undefined)
   const { data: agingData, loading: agingLoading } = useFetch<any>(agingQuery, undefined)
   const { data: cashData, loading: cashLoading } = useFetch<any>(cashQuery, undefined)
+  const { data: gstData, loading: gstLoading } = useFetch<any>(gstQuery, undefined)
 
   const tabs = [
     { id: 'sales', label: 'Sales Trend', icon: TrendingUp },
     { id: 'topitems', label: 'Top Items', icon: Package },
     { id: 'aging', label: 'Receivables', icon: AlertTriangle },
     { id: 'cashflow', label: 'Cash Flow', icon: Wallet },
+    { id: 'gst', label: 'GST Return', icon: FileSpreadsheet },
   ] as const
 
   return (
@@ -365,6 +375,161 @@ export function ReportsPanel() {
                       <p className="font-bold text-slate-700">{formatCurrency(cashData.upi.net)}</p>
                     </div>
                   </div>
+                </CardContent>
+              </Card>
+            </>
+          ) : null}
+        </div>
+      )}
+
+      {/* ===== GST RETURN (GSTR-1) ===== */}
+      {activeReport === 'gst' && (
+        <div className="space-y-4">
+          <div className="flex flex-wrap gap-2 items-end">
+            <div>
+              <label className="text-[10px] text-slate-500 block mb-1">Filing month</label>
+              <Input type="month" value={gstMonth} onChange={(e) => setGstMonth(e.target.value)} className="h-10" />
+            </div>
+            <a
+              href={`/api/reports/gstr1?month=${gstMonth}&format=csv`}
+              className="inline-flex items-center gap-1.5 h-10 px-4 rounded-md bg-blue-600 text-white text-xs sm:text-sm font-medium hover:bg-blue-700 transition-colors"
+            >
+              <Download className="w-4 h-4" /> Download CSV
+            </a>
+          </div>
+
+          {gstLoading ? (
+            <Card><CardContent className="text-center py-8 text-slate-500">Loading...</CardContent></Card>
+          ) : gstData?.error ? (
+            <Card className="border-red-200 bg-red-50">
+              <CardContent className="py-4 text-sm text-red-700">{gstData.error}</CardContent>
+            </Card>
+          ) : gstData ? (
+            <>
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-2 sm:gap-3">
+                <Card className="bg-slate-800 border-slate-800">
+                  <CardContent className="p-3">
+                    <p className="text-[10px] text-slate-400 uppercase mb-1">Taxable Value</p>
+                    <p className="text-lg sm:text-xl font-bold text-white">{formatCurrency(gstData.summary?.totalTaxableValue || 0)}</p>
+                    <p className="text-[9px] text-slate-400">{gstData.summary?.invoiceCount || 0} invoices</p>
+                  </CardContent>
+                </Card>
+                <Card className="bg-blue-50 border-blue-200">
+                  <CardContent className="p-3">
+                    <p className="text-[10px] font-medium text-blue-700 uppercase mb-1">CGST + SGST</p>
+                    <p className="text-lg sm:text-xl font-bold text-blue-700">{formatCurrency((gstData.summary?.totalCgst || 0) + (gstData.summary?.totalSgst || 0))}</p>
+                    <p className="text-[9px] text-blue-600">Intra-state</p>
+                  </CardContent>
+                </Card>
+                <Card className="bg-violet-50 border-violet-200">
+                  <CardContent className="p-3">
+                    <p className="text-[10px] font-medium text-violet-700 uppercase mb-1">IGST</p>
+                    <p className="text-lg sm:text-xl font-bold text-violet-700">{formatCurrency(gstData.summary?.totalIgst || 0)}</p>
+                    <p className="text-[9px] text-violet-600">Inter-state</p>
+                  </CardContent>
+                </Card>
+                <Card className="bg-emerald-600 border-emerald-600">
+                  <CardContent className="p-3">
+                    <p className="text-[10px] text-emerald-100 uppercase mb-1">Total Tax</p>
+                    <p className="text-lg sm:text-xl font-bold text-white">{formatCurrency(gstData.summary?.totalTax || 0)}</p>
+                    <p className="text-[9px] text-emerald-100">{gstData.periodLabel}</p>
+                  </CardContent>
+                </Card>
+              </div>
+
+              {Array.isArray(gstData.warnings) && gstData.warnings.length > 0 && (
+                <Card className="border-amber-200 bg-amber-50">
+                  <CardHeader className="pb-2">
+                    <CardTitle className="text-sm flex items-center gap-1.5 text-amber-800">
+                      <AlertCircle className="w-4 h-4" /> Review before filing
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent className="pt-0">
+                    <ul className="space-y-1">
+                      {gstData.warnings.map((w: string, i: number) => (
+                        <li key={i} className="text-xs text-amber-800">• {w}</li>
+                      ))}
+                    </ul>
+                  </CardContent>
+                </Card>
+              )}
+
+              <Card className="border-slate-200">
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-base flex items-center gap-2">
+                    B2B — Registered buyers
+                    <Badge variant="outline" className="text-[10px]">{gstData.summary?.b2bCount || 0}</Badge>
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  {gstData.b2b?.length ? (
+                    <div className="overflow-x-auto">
+                      <Table>
+                        <TableHeader>
+                          <TableRow>
+                            <TableHead>GSTIN</TableHead>
+                            <TableHead>Receiver</TableHead>
+                            <TableHead>Invoice</TableHead>
+                            <TableHead>Date</TableHead>
+                            <TableHead className="text-right">Value</TableHead>
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                          {gstData.b2b.map((inv: any, i: number) => (
+                            <TableRow key={i}>
+                              <TableCell className="font-mono text-[11px]">{inv.gstin}</TableCell>
+                              <TableCell className="text-xs">{inv.receiverName}</TableCell>
+                              <TableCell className="text-xs">{inv.invoiceNumber}</TableCell>
+                              <TableCell className="text-xs">{inv.date}</TableCell>
+                              <TableCell className="text-right text-xs">{formatCurrency(inv.invoiceValue)}</TableCell>
+                            </TableRow>
+                          ))}
+                        </TableBody>
+                      </Table>
+                    </div>
+                  ) : (
+                    <p className="text-xs text-slate-500 py-2">No B2B sales this month.</p>
+                  )}
+                </CardContent>
+              </Card>
+
+              <Card className="border-slate-200">
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-base">HSN Summary</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  {gstData.hsn?.length ? (
+                    <div className="overflow-x-auto">
+                      <Table>
+                        <TableHeader>
+                          <TableRow>
+                            <TableHead>HSN/SAC</TableHead>
+                            <TableHead>Description</TableHead>
+                            <TableHead className="text-right">Qty</TableHead>
+                            <TableHead className="text-right">Rate</TableHead>
+                            <TableHead className="text-right">Taxable</TableHead>
+                            <TableHead className="text-right">Tax</TableHead>
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                          {gstData.hsn.map((h: any, i: number) => (
+                            <TableRow key={i}>
+                              <TableCell className="font-mono text-[11px]">
+                                {h.hsnCode || <span className="text-red-600">missing</span>}
+                              </TableCell>
+                              <TableCell className="text-xs">{h.description}</TableCell>
+                              <TableCell className="text-right text-xs">{h.quantity}</TableCell>
+                              <TableCell className="text-right text-xs">{h.rate}%</TableCell>
+                              <TableCell className="text-right text-xs">{formatCurrency(h.taxableValue)}</TableCell>
+                              <TableCell className="text-right text-xs">{formatCurrency(h.cgst + h.sgst + h.igst)}</TableCell>
+                            </TableRow>
+                          ))}
+                        </TableBody>
+                      </Table>
+                    </div>
+                  ) : (
+                    <p className="text-xs text-slate-500 py-2">No data for this month.</p>
+                  )}
                 </CardContent>
               </Card>
             </>

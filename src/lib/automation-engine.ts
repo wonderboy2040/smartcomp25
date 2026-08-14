@@ -432,27 +432,47 @@ export class AutomationEngine {
     }
 
     try {
-      // Simulate action execution (in real app, would call APIs)
+      const performed: string[] = []
+      const skipped: string[] = []
+
       for (const action of rule.actions) {
         if (action.delayMinutes && action.delayMinutes > 0) {
-          // In real implementation, schedule delayed job
-          await new Promise(r => setTimeout(r, Math.min(100, (action.delayMinutes || 0) * 10))) // fast sim
+          // Delayed actions are not scheduled yet — run inline and say so.
+          skipped.push(`${action.type} (delay not supported)`)
+          continue
         }
-        await this.executeAction(action, context)
+        const result = await this.executeAction(action, context)
+        if (result.performed) performed.push(result.detail)
+        else skipped.push(result.detail)
       }
 
       const execMs = Date.now() - start
       rule.stats.totalRuns++
       rule.stats.lastRun = new Date().toISOString()
       rule.stats.avgExecutionMs = Math.round((rule.stats.avgExecutionMs * (rule.stats.totalRuns - 1) + execMs) / rule.stats.totalRuns)
-      
+
+      // Only claim success if something actually happened.
+      const status: AutomationLog['status'] = performed.length > 0 ? 'success' : 'skipped'
+
+      // Real rolling success rate. Template defaults are seeded values and get
+      // washed out on the first run (totalRuns-1 === 0).
+      rule.stats.successRate = Math.round(
+        (rule.stats.successRate * (rule.stats.totalRuns - 1) + (status === 'success' ? 100 : 0)) /
+          rule.stats.totalRuns
+      )
+
+      const parts = [
+        performed.length ? `${performed.length} action(s) done: ${performed.join('; ')}` : '',
+        skipped.length ? `${skipped.length} skipped: ${skipped.join('; ')}` : '',
+      ].filter(Boolean)
+
       const log: AutomationLog = {
         id: `log_${Date.now()}`,
         ruleId: rule.id,
         ruleName: rule.name,
         trigger: rule.trigger.type,
-        status: 'success',
-        message: `Executed ${rule.actions.length} actions successfully`,
+        status,
+        message: parts.join(' | ') || 'No actions configured',
         executionTimeMs: execMs,
         timestamp: new Date().toISOString(),
         data: context,
@@ -461,6 +481,12 @@ export class AutomationEngine {
       this.saveToStorage()
       return log
     } catch (e: any) {
+      // Failed runs must count too, otherwise successRate only ever sees wins.
+      rule.stats.totalRuns++
+      rule.stats.lastRun = new Date().toISOString()
+      rule.stats.successRate = Math.round(
+        (rule.stats.successRate * (rule.stats.totalRuns - 1)) / rule.stats.totalRuns
+      )
       const log: AutomationLog = {
         id: `log_${Date.now()}`,
         ruleId: rule.id,
@@ -473,35 +499,82 @@ export class AutomationEngine {
         data: context,
       }
       this.addLog(log)
+      this.saveToStorage()
       return log
     }
   }
 
-  private async executeAction(action: { type: ActionType; config: Record<string, any> }, context: Record<string, any>) {
+  private async executeAction(
+    action: { type: ActionType; config: Record<string, any> },
+    context: Record<string, any>
+  ): Promise<{ performed: boolean; detail: string }> {
     // Interpolate template variables like {{customerName}}
     const interpolate = (str: string) => {
       return str.replace(/\{\{(\w+)\}\}/g, (_, key) => context[key] || `{{${key}}}`)
     }
 
+    const post = async (payload: Record<string, any>) => {
+      const res = await fetch('/api/automation', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok || data?.success === false) {
+        throw new Error(data?.error || `Request failed (${res.status})`)
+      }
+      return data
+    }
+
     switch (action.type) {
       case 'send_whatsapp':
-        // Would call /api/whatsapp/send
-        console.info(`[Automation] WhatsApp: ${interpolate(action.config.message || action.config.template || 'Notification')}`)
-        break
-      case 'notify_owner':
-        console.info(`[Automation] Notify owner: ${action.config.message || 'Automation triggered'}`)
-        break
-      case 'create_task':
-        console.info(`[Automation] Task: ${interpolate(action.config.title || 'New task')}`)
-        break
-      case 'generate_report':
-        console.info(`[Automation] Generate ${action.config.type} report`)
-        break
+      case 'remind_customer': {
+        const phone = String(
+          action.config.phone || context.customerPhone || context.phone || ''
+        ).trim()
+        if (!phone) throw new Error(`${action.type}: no customer phone available`)
+        const message = interpolate(
+          action.config.message || action.config.template || 'Notification'
+        )
+        const res = await post({ action: 'notify', phone, message })
+        // No Cloud API configured → server returns a wa.me link for manual send.
+        return res.method === 'wa.me-link'
+          ? { performed: true, detail: `WhatsApp link ready for ${phone} (manual send)` }
+          : { performed: true, detail: `WhatsApp sent to ${phone}` }
+      }
+
+      case 'notify_owner': {
+        const message = interpolate(action.config.message || 'Automation triggered')
+        const res = await post({ action: 'notifyOwner', message })
+        return res.method === 'wa.me-link'
+          ? { performed: true, detail: 'Owner alert link ready (manual send)' }
+          : { performed: true, detail: 'Owner notified on WhatsApp' }
+      }
+
+      case 'webhook': {
+        const url = String(action.config.url || '').trim()
+        if (!url) throw new Error('webhook: no url configured')
+        const res = await post({ action: 'webhook', url, payload: { ...context } })
+        return { performed: true, detail: `Webhook called (HTTP ${res.status})` }
+      }
+
+      case 'auto_reorder': {
+        const res = await fetch('/api/reorder')
+        if (!res.ok) throw new Error(`auto_reorder: reorder API failed (${res.status})`)
+        const data = await res.json()
+        const count = Array.isArray(data?.suggestions) ? data.suggestions.length : 0
+        return { performed: true, detail: `${count} reorder suggestion(s) generated` }
+      }
+
       default:
-        console.info(`[Automation] Action ${action.type}`)
+        // Honest reporting: these action types have no backing implementation
+        // yet. Previously every action logged a fake success, which made the
+        // Hub look like it was working when nothing happened.
+        return {
+          performed: false,
+          detail: `"${action.type}" is not implemented yet — nothing was sent`,
+        }
     }
-    // Simulate network
-    await new Promise(r => setTimeout(r, 150))
   }
 
   private addLog(log: AutomationLog) {

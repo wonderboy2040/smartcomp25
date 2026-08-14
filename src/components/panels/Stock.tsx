@@ -18,8 +18,9 @@ import {
 } from '@/components/ui/table'
 import { useToast } from '@/hooks/use-toast'
 import { formatCurrency, sumBy } from '@/lib/calc'
-import { Plus, Search, Pencil, Trash2, Package, AlertTriangle, Download, Tag, Folder, IndianRupee, TrendingUp, Boxes, Percent, FileText, Hash, KeyRound } from 'lucide-react'
+import { Plus, Search, Pencil, Trash2, Package, AlertTriangle, Download, Tag, Folder, IndianRupee, TrendingUp, Boxes, Percent, FileText, Hash, KeyRound, ScanLine } from 'lucide-react'
 import { toCSV, downloadCSV } from '@/lib/utils'
+import { BarcodeScanner } from '@/components/BarcodeScanner'
 
 export const PRESET_CATEGORIES = [
   'Laptop',
@@ -61,10 +62,10 @@ export function StockPanel() {
 
   const categoryStats = useMemo(() => {
     const counts = new Map<string, number>()
-    ;(items || []).forEach((i) => {
-      const cat = i.category || 'General'
-      counts.set(cat, (counts.get(cat) || 0) + 1)
-    })
+      ; (items || []).forEach((i) => {
+        const cat = i.category || 'General'
+        counts.set(cat, (counts.get(cat) || 0) + 1)
+      })
     return Array.from(counts.entries()).map(([category, count]) => ({ category, count }))
   }, [items])
 
@@ -130,7 +131,7 @@ export function StockPanel() {
         </div>
         <div className="flex gap-2">
           <Button variant="outline" onClick={() => {
-            const csv = toCSV(filtered as any[], ['name','sku','category','quantity','costPrice','sellingPrice','gstRate'])
+            const csv = toCSV(filtered as any[], ['name', 'sku', 'category', 'quantity', 'costPrice', 'sellingPrice', 'gstRate'])
             downloadCSV(csv, `stock-${new Date().toISOString().split('T')[0]}.csv`)
           }} className="h-11" size="sm">
             <Download className="w-4 h-4 mr-1" /> Export CSV
@@ -253,11 +254,10 @@ export function StockPanel() {
             <div className="flex items-center gap-1.5 overflow-x-auto pt-1 pb-1 scrollbar-thin">
               <button
                 onClick={() => setCategoryFilter('all')}
-                className={`px-3 py-1.5 rounded-xl text-xs font-medium transition-all flex items-center gap-1 flex-shrink-0 ${
-                  categoryFilter === 'all'
+                className={`px-3 py-1.5 rounded-xl text-xs font-medium transition-all flex items-center gap-1 flex-shrink-0 ${categoryFilter === 'all'
                     ? 'bg-violet-600 text-white shadow-sm'
                     : 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700'
-                }`}
+                  }`}
               >
                 <Tag className="w-3 h-3" /> All ({items?.length || 0})
               </button>
@@ -265,16 +265,14 @@ export function StockPanel() {
                 <button
                   key={category}
                   onClick={() => setCategoryFilter(category === categoryFilter ? 'all' : category)}
-                  className={`px-3 py-1.5 rounded-xl text-xs font-medium transition-all flex items-center gap-1.5 flex-shrink-0 ${
-                    categoryFilter === category
+                  className={`px-3 py-1.5 rounded-xl text-xs font-medium transition-all flex items-center gap-1.5 flex-shrink-0 ${categoryFilter === category
                       ? 'bg-violet-600 text-white shadow-sm'
                       : 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700'
-                  }`}
+                    }`}
                 >
                   <span>{category}</span>
-                  <span className={`text-[10px] px-1.5 py-0.2 rounded-full ${
-                    categoryFilter === category ? 'bg-white/20 text-white' : 'bg-slate-200 dark:bg-slate-700 text-slate-600 dark:text-slate-400'
-                  }`}>
+                  <span className={`text-[10px] px-1.5 py-0.2 rounded-full ${categoryFilter === category ? 'bg-white/20 text-white' : 'bg-slate-200 dark:bg-slate-700 text-slate-600 dark:text-slate-400'
+                    }`}>
                     {count}
                   </span>
                 </button>
@@ -482,6 +480,16 @@ function ItemDialog({
   const { toast } = useToast()
   const [form, setForm] = useState<any>({})
   const [saving, setSaving] = useState(false)
+  // Barcode scanner held in the Item dialog: scanning fills the barcode field
+  // so the item is visible in /api/items?barcode= lookups (billing + stock).
+  const [showBarcodeDialog, setShowBarcodeDialog] = useState(false)
+
+  // On scan, fill the barcode field so the item is searchable by barcode.
+  const handleScan = useCallback((barcode: string) => {
+    setShowBarcodeDialog(false)
+    setForm((prev: any) => ({ ...prev, barcode: barcode.trim() }))
+    toast({ title: `Barcode: ${barcode.trim()}`, description: 'Saved to this item', duration: 3000 })
+  }, [toast])
 
   useEffect(() => {
     if (open) {
@@ -489,25 +497,25 @@ function ItemDialog({
         editing
           ? {
               ...editing,
-              // Serials and keys live in the ItemSerials sheet, not on the item
-              // row. Seed the textareas from the unsold units the list endpoint
-              // already returned so an edit shows what is on file instead of an
-              // empty box (re-typing them used to be the only way to see them).
-              serialNumbers: (editing.availableSerials || []).join('\n'),
-              digitalKeys: (editing.availableKeys || []).join('\n'),
-              isDigitalProduct:
-                editing.isDigitalProduct === true ||
-                editing.isDigitalProduct === 'true' ||
-                (editing.availableKeys || []).length > 0,
-            }
+            // Serials and keys live in the ItemSerials sheet, not on the item
+            // row. Seed the textareas from the unsold units the list endpoint
+            // already returned so an edit shows what is on file instead of an
+            // empty box (re-typing them used to be the only way to see them).
+            serialNumbers: (editing.availableSerials || []).join('\n'),
+            digitalKeys: (editing.availableKeys || []).join('\n'),
+            isDigitalProduct:
+              editing.isDigitalProduct === true ||
+              editing.isDigitalProduct === 'true' ||
+              (editing.availableKeys || []).length > 0,
+          }
           : {
-              name: '', sku: '', category: 'General', hsnCode: '',
-              description: '', serialNumbers: '',
-              isDigitalProduct: false, digitalKeys: '',
-              gstApplicable: true, gstRate: 18,
-              costPrice: 0, sellingPrice: 0, quantity: 0, minQuantity: 0,
-              unit: 'pcs', supplierId: '',
-            }
+            name: '', sku: '', barcode: '', category: 'General', hsnCode: '',
+            description: '', serialNumbers: '',
+            isDigitalProduct: false, digitalKeys: '',
+            gstApplicable: true, gstRate: 18,
+            costPrice: 0, sellingPrice: 0, quantity: 0, minQuantity: 0,
+            unit: 'pcs', supplierId: '',
+          }
       )
     }
   }, [open, editing])
@@ -583,6 +591,27 @@ function ItemDialog({
               placeholder="e.g. LAP-HP-15S"
             />
           </div>
+          <div className="relative">
+            <Label>Barcode</Label>
+            <div className="flex gap-1 mt-1">
+              <Input
+                value={form.barcode || ''}
+                onChange={(e) => setForm({ ...form, barcode: e.target.value })}
+                placeholder="Scan or type barcode"
+                className="flex-1"
+              />
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                className="h-10 px-2 border-slate-300 flex-shrink-0"
+                title="Scan barcode"
+                onClick={() => setShowBarcodeDialog(true)}
+              >
+                <ScanLine className="w-4 h-4" />
+              </Button>
+            </div>
+          </div>
           <div className="sm:col-span-2 space-y-1.5">
             <div className="flex items-center justify-between">
               <Label>Category</Label>
@@ -618,11 +647,10 @@ function ItemDialog({
                   key={c}
                   type="button"
                   onClick={() => setForm({ ...form, category: c })}
-                  className={`text-[10px] px-2 py-0.5 rounded-full border transition-all ${
-                    form.category === c
+                  className={`text-[10px] px-2 py-0.5 rounded-full border transition-all ${form.category === c
                       ? 'bg-violet-600 text-white border-violet-600 font-medium'
                       : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 border-slate-200 dark:border-slate-700 hover:bg-slate-200 dark:hover:bg-slate-700'
-                  }`}
+                    }`}
                 >
                   + {c}
                 </button>
@@ -788,6 +816,14 @@ function ItemDialog({
             {saving ? 'Saving...' : editing ? 'Update Item' : 'Add Item'}
           </Button>
         </DialogFooter>
+
+        {showBarcodeDialog && (
+          <BarcodeScanner
+            onScan={handleScan}
+            onClose={() => setShowBarcodeDialog(false)}
+            hint="Point at product barcode or QR code to attach to this item"
+          />
+        )}
       </DialogContent>
     </Dialog>
   )

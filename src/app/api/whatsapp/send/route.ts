@@ -59,6 +59,29 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ success: true, link, message, phone })
     }
 
+    if (action === 'portalLink') {
+      const { phone, name } = body
+      if (!phone) return NextResponse.json({ error: 'Phone required' }, { status: 400 })
+
+      const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || ''
+      const portalUrl = baseUrl ? `${baseUrl}/portal` : '/portal'
+      const cleanPhone = String(phone).replace(/\D/g, '')
+      const message = [
+        `*${shopName}*`,
+        '',
+        `Dear ${name ? String(name) : 'Customer'},`,
+        '',
+        'Your account is ready — view all your invoices, pending payments, warranty & AMC status, and pay online:',
+        '',
+        `${portalUrl}`,
+        '',
+        'Enter your mobile number to log in. Thank you!',
+      ].join('\n')
+      const link = generateWhatsAppLink(cleanPhone, message)
+
+      return NextResponse.json({ success: true, link, message, phone })
+    }
+
     if (action === 'customMessage') {
       const { phone, message } = body
       if (!phone || !message) return NextResponse.json({ error: 'Phone and message required' }, { status: 400 })

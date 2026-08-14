@@ -15,7 +15,7 @@ import {
 } from '@/components/ui/table'
 import { useToast } from '@/hooks/use-toast'
 import { formatCurrency } from '@/lib/calc'
-import { Plus, Search, Pencil, Trash2, Users, Eye } from 'lucide-react'
+import { Plus, Search, Pencil, Trash2, Users, Eye, Share2 } from 'lucide-react'
 
 export function CustomersPanel() {
   const { toast } = useToast()
@@ -77,6 +77,27 @@ export function CustomersPanel() {
     }
   }, [refetch, toast])
 
+  // WhatsApp: send the customer their self-service portal link
+  const handleSendPortalLink = useCallback(async (c: any) => {
+    if (!c?.phone) {
+      toast({ title: 'No phone number', description: 'Add a phone number to send the portal link', variant: 'destructive' })
+      return
+    }
+    try {
+      const res = await fetch('/api/whatsapp/send', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'portalLink', phone: c.phone, name: c.name || '' }),
+      })
+      const d = await res.json()
+      if (!res.ok) throw new Error(d.error || 'Failed to build link')
+      window.open(d.link, '_blank', 'noopener,noreferrer')
+      toast({ title: 'Portal link ready ✓', description: 'Opening WhatsApp — send to your customer', duration: 4000 })
+    } catch (e: any) {
+      toast({ title: 'Failed', description: e.message, variant: 'destructive', duration: 6000 })
+    }
+  }, [toast])
+
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
@@ -122,6 +143,9 @@ export function CustomersPanel() {
                     {c.address && <p className="text-[10px] text-slate-500 truncate">{c.address}</p>}
                   </div>
                   <div className="flex gap-1 flex-shrink-0">
+                    <Button size="sm" variant="ghost" className="h-8 w-8 p-0" onClick={() => handleSendPortalLink(c)} title="Send Self-Service Portal link">
+                      <Share2 className="w-3.5 h-3.5 text-emerald-600" />
+                    </Button>
                     <Button size="sm" variant="ghost" className="h-8 w-8 p-0" onClick={() => handleViewLedger(c)} title="View Ledger">
                       <Eye className="w-3.5 h-3.5 text-blue-600" />
                     </Button>
@@ -203,6 +227,9 @@ export function CustomersPanel() {
                       </TableCell>
                       <TableCell className="text-right">
                         <div className="flex items-center justify-end gap-1">
+                          <Button variant="ghost" size="sm" onClick={() => handleSendPortalLink(c)} title="Send Self-Service Portal link">
+                            <Share2 className="w-3.5 h-3.5 text-emerald-600" />
+                          </Button>
                           <Button variant="ghost" size="sm" onClick={() => handleViewLedger(c)} title="View Ledger">
                             <Eye className="w-3.5 h-3.5 text-blue-600" />
                           </Button>

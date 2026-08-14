@@ -30,12 +30,23 @@ export async function GET(req: NextRequest) {
       listRows<any>('ItemSerials', { useCache: true }).catch(() => [] as any[]),
     ])
 
+    const barcodeFilter = url.searchParams.get('barcode')
+
     let items = allItems
     if (category && category !== 'all') {
       items = items.filter((i) => i.category === category)
     }
     if (lowStock) {
       items = items.filter((i) => Number(i.quantity) <= Number(i.minQuantity || 0))
+    }
+    // Barcode lookup: match barcode field OR sku (so old items without barcode still scannable by SKU)
+    if (barcodeFilter) {
+      const q = barcodeFilter.trim().toLowerCase()
+      items = items.filter(
+        (i) =>
+          String(i.barcode || '').toLowerCase() === q ||
+          String(i.sku || '').toLowerCase() === q,
+      )
     }
 
     const supplierMap = new Map(suppliers.map((s) => [s.id, s]))
@@ -142,6 +153,7 @@ export async function POST(req: NextRequest) {
       ...validation.data,
       name: String(body.name).trim(),
       sku: String(body.sku || '').trim(),
+      barcode: String(body.barcode || '').trim(),
       category: String(body.category || '').trim(),
       description: String(body.description || '').trim(),
       unit: String(body.unit || 'pcs').trim(),

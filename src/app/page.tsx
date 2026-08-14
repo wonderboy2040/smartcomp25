@@ -9,7 +9,7 @@ import { useTheme } from '@/lib/theme-context'
 import { PdfPreviewProvider } from '@/lib/preview-context'
 import { PanelErrorBoundary } from '@/components/PanelErrorBoundary'
 import { DashboardView } from '@/components/panels/Dashboard'
-import { LayoutDashboard, Package, FileText, FileCheck2, Users, Building2, Wallet, MessageSquare, Settings, Store, Menu, X, Loader2, Wrench, LogOut, Receipt, BarChart3, Boxes, PiggyBank, FileSpreadsheet, Megaphone, ShieldAlert, FileSignature, Sun, Moon, Zap, Wifi, ShieldCheck, Sparkles, Brain, Command, BrainCircuit, Workflow } from 'lucide-react'
+import { LayoutDashboard, Package, FileText, FileCheck2, Users, Building2, Wallet, MessageSquare, Settings, Store, Menu, X, Loader2, Wrench, LogOut, Receipt, BarChart3, Boxes, PiggyBank, FileSpreadsheet, Megaphone, ShieldAlert, FileSignature, Sun, Moon, Zap, Wifi, ShieldCheck, Sparkles, Brain, Command, BrainCircuit, Workflow, PackageCheck } from 'lucide-react'
 
 // ===== DYNAMIC IMPORTS FOR HEAVY PANELS =====
 const StockPanel = lazy(() => import('@/components/panels/Stock').then(m => ({ default: m.StockPanel })))
@@ -35,6 +35,7 @@ const PosterHubPanel = lazy(() => import('@/components/panels/PosterHub').then(m
 const AIIntelligencePanel = lazy(() => import('@/components/panels/AIIntelligence').then(m => ({ default: m.AIIntelligencePanel })))
 const AutomationHubPanel = lazy(() => import('@/components/panels/AutomationHub').then(m => ({ default: m.AutomationHubPanel })))
 const CommandCenterPanel = lazy(() => import('@/components/panels/CommandCenter').then(m => ({ default: m.CommandCenterPanel })))
+const PurchaseOrdersPanel = lazy(() => import('@/components/panels/PurchaseOrders').then(m => ({ default: m.PurchaseOrdersPanel })))
 
 const NAV_ITEMS = [
   { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard, color: 'text-slate-600' },
@@ -45,6 +46,7 @@ const NAV_ITEMS = [
   { id: 'payments', label: 'Payments', icon: Wallet, color: 'text-orange-600' },
   { id: 'customers', label: 'Customers', icon: Users, color: 'text-pink-600' },
   { id: 'suppliers', label: 'Suppliers', icon: Building2, color: 'text-violet-600' },
+  { id: 'purchaseorders', label: 'Purchase Orders', icon: PackageCheck, color: 'text-violet-600' },
   { id: 'whatsapp', label: 'WhatsApp Enquiry', icon: MessageSquare, color: 'text-green-600' },
   { id: 'jobs', label: 'Service Jobs', icon: Wrench, color: 'text-blue-600' },
   { id: 'servicepayments', label: 'Service Payments', icon: Wallet, color: 'text-purple-600' },
@@ -93,6 +95,7 @@ const PANEL_PRELOADERS: Record<string, () => Promise<unknown>> = {
   customers: () => import('@/components/panels/Customers'),
   payments: () => import('@/components/panels/Payments'),
   suppliers: () => import('@/components/panels/Suppliers'),
+  purchaseorders: () => import('@/components/panels/PurchaseOrders'),
   whatsapp: () => import('@/components/panels/WhatsApp'),
   settings: () => import('@/components/panels/Settings'),
   reports: () => import('@/components/panels/Reports'),
@@ -549,6 +552,9 @@ function HomeInner() {
             </PanelBoundary>
             <PanelBoundary active={active} id="suppliers" mounted={mountedPanels.has('suppliers')}>
               <SuppliersPanel />
+            </PanelBoundary>
+            <PanelBoundary active={active} id="purchaseorders" mounted={mountedPanels.has('purchaseorders')}>
+              <PurchaseOrdersPanel />
             </PanelBoundary>
             <PanelBoundary active={active} id="whatsapp" mounted={mountedPanels.has('whatsapp')}>
               <WhatsAppPanel />

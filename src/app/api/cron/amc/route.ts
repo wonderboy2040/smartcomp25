@@ -4,37 +4,44 @@ import { sendCustomerNotification } from '@/lib/notifications'
 import { cronLimiter, getClientIp } from '@/lib/rate-limit'
 
 /**
- * POST /api/cron/amc
+ * /api/cron/amc  (GET and POST)
  * Daily cron — checks AMC contracts expiring in 30 days, sends WhatsApp alert.
  * Also marks expired contracts as 'expired'.
  *
- * On Vercel: declared in vercel.json (auto-injects VERCEL_CRON_SECRET header).
- * On Render: use external cron (cron-job.org) with Authorization: Bearer CRON_SECRET.
+ * On Vercel: declared in vercel.json. Vercel Cron only ever issues GET and
+ * injects `Authorization: Bearer <CRON_SECRET>`, so GET must be supported.
+ * On Render: use external cron (cron-job.org) with either method plus
+ * Authorization: Bearer CRON_SECRET.
  *
- * SECURITY: Either CRON_SECRET or VERCEL_CRON_SECRET must match.
+ * SECURITY: Either CRON_SECRET or VERCEL_CRON_SECRET must match. The secret is
+ * carried in the Authorization header, which a browser cannot set cross-origin
+ * (no <img>/link CSRF), so allowing GET here is safe. Unlike POST, GET has no
+ * dev-mode bypass — it always requires a valid secret.
  */
-export async function POST(req: NextRequest) {
+function verifyCron(req: NextRequest, allowDevBypass: boolean): NextResponse | null {
   const ip = getClientIp(req)
   const check = cronLimiter(ip)
   if (!check.allowed) return NextResponse.json({ error: 'Rate limited' }, { status: 429 })
 
   const secrets = [process.env.CRON_SECRET, process.env.VERCEL_CRON_SECRET].filter(Boolean) as string[]
   if (secrets.length === 0) {
-    if (process.env.NODE_ENV === 'production') {
+    if (process.env.NODE_ENV === 'production' || !allowDevBypass) {
       return NextResponse.json(
         { error: 'No CRON_SECRET or VERCEL_CRON_SECRET configured — cron disabled' },
         { status: 503 }
       )
     }
     console.warn('[cron/amc] No cron secret set (dev mode) — allowing request')
-  } else {
-    const authHeader = req.headers.get('authorization') || ''
-    const ok = secrets.some((s) => authHeader === `Bearer ${s}`)
-    if (!ok) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-    }
+    return null
   }
 
+  const authHeader = req.headers.get('authorization') || ''
+  const ok = secrets.some((s) => authHeader === `Bearer ${s}`)
+  if (!ok) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  return null
+}
+
+async function runAmcCron() {
   try {
     const contracts = await listRows<any>('AMCContracts')
     const shops = await listRows<any>('Shop')
@@ -80,12 +87,15 @@ export async function POST(req: NextRequest) {
   }
 }
 
-// GET is intentionally rejected — cron endpoints must be POST to avoid CSRF.
-// (An attacker can craft a <img src="..."> or link the admin might click;
-//  they cannot craft a cross-origin POST without CORS pre-flight.)
-export async function GET() {
-  return NextResponse.json(
-    { error: 'Method Not Allowed — use POST with Authorization: Bearer <CRON_SECRET>' },
-    { status: 405, headers: { Allow: 'POST' } }
-  )
+export async function POST(req: NextRequest) {
+  const denied = verifyCron(req, true)
+  if (denied) return denied
+  return runAmcCron()
+}
+
+// Vercel Cron issues GET only — supported, but always requires the secret.
+export async function GET(req: NextRequest) {
+  const denied = verifyCron(req, false)
+  if (denied) return denied
+  return runAmcCron()
 }

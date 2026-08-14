@@ -13,7 +13,8 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { useToast } from '@/hooks/use-toast'
 
-import { Package, Plus, Trash2, Edit3, Search, Shield, ShieldCheck, ShieldAlert, KeyRound } from 'lucide-react'
+import { Package, Plus, Trash2, Edit3, Search, Shield, ShieldCheck, ShieldAlert, KeyRound, ScanLine } from 'lucide-react'
+import { BarcodeScanner } from '@/components/BarcodeScanner'
 
 const STATUS_COLORS: Record<string, string> = {
   in_stock: 'bg-emerald-50 text-emerald-700 border-emerald-200',
@@ -59,6 +60,12 @@ export function SerialsPanel() {
 
   const handleEdit = (s: any) => { setEditing(s); setDialogOpen(true) }
   const handleAdd = () => { setEditing(null); setDialogOpen(true) }
+  const [showScanner, setShowScanner] = useState(false)
+
+  const handleScan = (barcode: string) => {
+    setShowScanner(false)
+    setSearch(barcode)
+  }
 
   return (
     <div className="space-y-4">
@@ -74,6 +81,9 @@ export function SerialsPanel() {
         </div>
         <Button onClick={handleAdd} className="bg-indigo-600 hover:bg-indigo-700 h-11">
           <Plus className="w-4 h-4 mr-1.5" /> <span className="hidden sm:inline">Add Serial</span><span className="sm:hidden">Add</span>
+        </Button>
+        <Button variant="outline" onClick={() => setShowScanner(true)} className="h-11 border-slate-300 text-slate-700" title="Scan serial number barcode">
+          <ScanLine className="w-4 h-4 mr-1.5" /> <span className="hidden sm:inline">Scan Serial</span><span className="sm:hidden">Scan</span>
         </Button>
       </div>
 
@@ -211,6 +221,14 @@ export function SerialsPanel() {
 
       {dialogOpen && (
         <SerialDialog open={dialogOpen} onOpenChange={setDialogOpen} editing={editing} onSaved={() => { setDialogOpen(false); refetch() }} />
+      )}
+
+      {showScanner && (
+        <BarcodeScanner
+          onScan={handleScan}
+          onClose={() => setShowScanner(false)}
+          hint="Scan serial number barcode — result appears in search"
+        />
       )}
     </div>
   )

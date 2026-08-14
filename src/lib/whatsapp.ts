@@ -17,6 +17,33 @@ export function generateWhatsAppLink(phone: string, message: string): string {
   return `https://wa.me/${cleanPhone}?text=${encoded}`
 }
 
+// Build Purchase Order message sent to the supplier on WhatsApp
+export function buildPurchaseOrderMessage(
+  poNumber: string,
+  supplierName: string,
+  items: { name: string; quantity: number; costPrice: number }[],
+  grandTotal: number,
+  notes?: string
+): string {
+  const num = String(poNumber || '')
+  const sn = String(supplierName || 'Supplier')
+  const amt = Number(grandTotal) || 0
+  let msg = `*PURCHASE ORDER* ${num}\n`
+  msg += `Dear ${sn},\n\n`
+  msg += `Please supply the following items:\n\n`
+  items.forEach((item) => {
+    const qty = Number(item?.quantity) || 0
+    const cost = Number(item?.costPrice) || 0
+    msg += `${qty} x ${String(item?.name || '').trim()}`
+    if (cost > 0) msg += ` @ Rs.${cost}`
+    msg += `\n`
+  })
+  msg += `\n*Total: Rs. ${amt.toFixed(2)}*\n`
+  if (notes) msg += `\n*Note:* ${String(notes).trim()}\n`
+  msg += `\nPlease confirm availability. Thank you!`
+  return msg
+}
+
 // Build rate enquiry message for supplier
 // SIMPLE FORMAT — just shop name, item list, and "prices?"
 // Suppliers in the computer hardware trade prefer short messages.

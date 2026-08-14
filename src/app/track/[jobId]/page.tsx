@@ -388,6 +388,15 @@ function TrackInner() {
           </div>
         )}
 
+        {/* Customer portal link */}
+        <a
+          href="/portal"
+          className="flex items-center justify-center gap-2 w-full py-3.5 bg-gradient-to-r from-indigo-600 to-violet-600 text-white rounded-2xl text-sm font-semibold hover:from-indigo-700 hover:to-violet-700 transition-colors shadow-lg shadow-indigo-200"
+        >
+          <Smartphone className="w-4 h-4" />
+          View all invoices &amp; pay online → My Account
+        </a>
+
         {/* Shop contact */}
         <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-5">
           <p className="text-sm font-semibold text-slate-900 mb-3">Contact Shop</p>

@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { AUTOMATION_TEMPLATES } from '@/lib/automation-engine'
+import { listRows, isConfigured } from '@/lib/sheets-client'
+import { sendCustomerNotification } from '@/lib/notifications'
 
 export async function GET(req: NextRequest) {
   const url = new URL(req.url)
@@ -52,6 +54,66 @@ export async function POST(req: NextRequest) {
     const body = await req.json()
     const { action, ruleId, context } = body
 
+    // ===== REAL ACTION EXECUTION =====
+    // The client-side engine (src/lib/automation-engine.ts) calls these to do
+    // actual work. WhatsApp sending and outbound webhooks run server-side so
+    // credentials stay off the client and webhooks are not blocked by CORS.
+
+    if (action === 'notify' || action === 'notifyOwner') {
+      if (!isConfigured()) {
+        return NextResponse.json({ error: 'Firebase not configured' }, { status: 503 })
+      }
+      const message = String(body.message || '').trim()
+      if (!message) return NextResponse.json({ error: 'message required' }, { status: 400 })
+
+      let phone = String(body.phone || '').trim()
+      if (action === 'notifyOwner') {
+        const shopRows = await listRows<any>('Shop', { useCache: true })
+        const shop = shopRows[0] || {}
+        phone = String(shop.whatsappNumber || shop.phone || '').trim()
+        if (!phone) {
+          return NextResponse.json(
+            { error: 'Owner phone not set — add a phone / WhatsApp number in Settings → Shop' },
+            { status: 400 }
+          )
+        }
+      }
+      if (!phone) return NextResponse.json({ error: 'phone required' }, { status: 400 })
+
+      const result = await sendCustomerNotification(phone, message)
+      return NextResponse.json({
+        success: result.success,
+        method: result.method,
+        link: result.link,
+        error: result.error,
+      })
+    }
+
+    if (action === 'webhook') {
+      const url = String(body.url || '').trim()
+      if (!/^https:\/\//i.test(url)) {
+        return NextResponse.json({ error: 'webhook url must be https' }, { status: 400 })
+      }
+      const controller = new AbortController()
+      const timer = setTimeout(() => controller.abort(), 10_000)
+      try {
+        const res = await fetch(url, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body.payload ?? {}),
+          signal: controller.signal,
+        })
+        return NextResponse.json({ success: res.ok, status: res.status })
+      } catch (e: any) {
+        return NextResponse.json(
+          { success: false, error: e?.name === 'AbortError' ? 'Webhook timed out' : e?.message },
+          { status: 502 }
+        )
+      } finally {
+        clearTimeout(timer)
+      }
+    }
+
     if (action === 'execute') {
       if (!ruleId) return NextResponse.json({ error: 'ruleId required' }, { status: 400 })
 
@@ -69,7 +131,7 @@ export async function POST(req: NextRequest) {
         actions: template.actions,
         context: context || {},
         simulated: true,
-        note: 'Client-side engine handles real execution. This API is for logging / validation.',
+        note: 'Dry run only — validates the rule shape. Real execution happens via the client engine, which calls action=notify / notifyOwner / webhook on this route.',
       })
     }
 
@@ -88,7 +150,10 @@ export async function POST(req: NextRequest) {
       })
     }
 
-    return NextResponse.json({ error: 'Invalid action, use execute or validate' }, { status: 400 })
+    return NextResponse.json(
+      { error: 'Invalid action — use notify, notifyOwner, webhook, execute or validate' },
+      { status: 400 }
+    )
   } catch (e: any) {
     return NextResponse.json({ error: e?.message }, { status: 500 })
   }

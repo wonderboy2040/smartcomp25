@@ -29,13 +29,14 @@ export async function GET(req: NextRequest) {
       return new Date(d) <= asOnD
     }
 
-    const [items, invoices, payments, expenses, servicePayments, personalExp] = await Promise.all([
+    const [items, invoices, payments, expenses, servicePayments, personalExp, purchaseOrders] = await Promise.all([
       listRows<any>('Items'),
       listRows<any>('Invoices'),
       listRows<any>('Payments'),
       listRows<any>('Expenses'),
       listRows<any>('ServicePayments'),
       listRows<any>('PersonalExpenditure'),
+      listRows<any>('PurchaseOrders').catch(() => [] as any[]),
     ])
 
     // ASSETS
@@ -93,10 +94,13 @@ export async function GET(req: NextRequest) {
     const totalAssets = stockValueCost + receivables + cashInHand + upiBalance + bankBalance
 
     // LIABILITIES
-    // Customer credit balance IS the same as receivables (outstanding invoice dues).
-    // Counting both would double-count. We set liabilities to 0 for now.
-    // Future: track supplier payables (purchase orders not yet paid) as real liabilities.
-    const totalLiabilities = 0
+    // Supplier payables = received POs not yet paid (amountDue). These are
+    // real obligations to suppliers and belong on the balance sheet.
+    const supplierPayables = purchaseOrders
+      .filter((po) => String(po.status) === 'received' && upTo(String(po.date || po.receivedAt || po.createdAt || '')))
+      .reduce((s, po) => s + (Number(po.amountDue) || Number(po.payableAmount) || 0), 0)
+
+    const totalLiabilities = supplierPayables
 
     // Net Worth
     const netWorth = totalAssets - totalLiabilities
@@ -113,6 +117,7 @@ export async function GET(req: NextRequest) {
         total: totalAssets,
       },
       liabilities: {
+        supplierPayables,
         total: totalLiabilities,
       },
       netWorth,
