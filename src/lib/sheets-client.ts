@@ -1165,7 +1165,7 @@ export async function exportSheetData(sheet: string): Promise<{ sheet: string; d
 }
 
 export async function exportAllData(): Promise<Record<string, any>> {
-  const sheets = ['Shop', 'Items', 'Customers', 'Suppliers', 'Invoices', 'Quotations', 'Payments', 'Enquiries', 'Jobs', 'ServicePayments', 'Expenses', 'ItemSerials', 'PersonalExpenditure', 'Campaigns', 'AMCContracts', 'PurchaseOrders', 'Settings']
+  const sheets = ['Shop', 'Items', 'Customers', 'Suppliers', 'Invoices', 'Quotations', 'Payments', 'Enquiries', 'Jobs', 'ServicePayments', 'Expenses', 'ItemSerials', 'PersonalExpenditure', 'Campaigns', 'AMCContracts', 'PurchaseOrders', 'SupplierPayments', 'StockAdjustments', 'ExpenseBudgets', 'GstReconciliations', 'Settings']
   const batch = await getBatchRows(sheets)
   return {
     version: '11.5',

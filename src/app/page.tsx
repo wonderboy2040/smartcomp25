@@ -9,7 +9,7 @@ import { useTheme } from '@/lib/theme-context'
 import { PdfPreviewProvider } from '@/lib/preview-context'
 import { PanelErrorBoundary } from '@/components/PanelErrorBoundary'
 import { DashboardView } from '@/components/panels/Dashboard'
-import { LayoutDashboard, Package, FileText, FileCheck2, Users, Building2, Wallet, MessageSquare, Settings, Store, Menu, X, Loader2, Wrench, LogOut, Receipt, BarChart3, Boxes, PiggyBank, FileSpreadsheet, Megaphone, ShieldAlert, FileSignature, Sun, Moon, Zap, Wifi, ShieldCheck, Sparkles, Brain, Command, BrainCircuit, Workflow, PackageCheck } from 'lucide-react'
+import { LayoutDashboard, Package, FileText, FileCheck2, Users, Building2, Wallet, MessageSquare, Settings, Store, Menu, X, Loader2, Wrench, LogOut, Receipt, BarChart3, Boxes, PiggyBank, FileSpreadsheet, Megaphone, ShieldAlert, FileSignature, Sun, Moon, Zap, Wifi, ShieldCheck, Sparkles, Brain, Command, BrainCircuit, Workflow, PackageCheck, Printer, ClipboardList, Target, FileBarChart } from 'lucide-react'
 
 // ===== DYNAMIC IMPORTS FOR HEAVY PANELS =====
 const StockPanel = lazy(() => import('@/components/panels/Stock').then(m => ({ default: m.StockPanel })))
@@ -36,6 +36,12 @@ const AIIntelligencePanel = lazy(() => import('@/components/panels/AIIntelligenc
 const AutomationHubPanel = lazy(() => import('@/components/panels/AutomationHub').then(m => ({ default: m.AutomationHubPanel })))
 const CommandCenterPanel = lazy(() => import('@/components/panels/CommandCenter').then(m => ({ default: m.CommandCenterPanel })))
 const PurchaseOrdersPanel = lazy(() => import('@/components/panels/PurchaseOrders').then(m => ({ default: m.PurchaseOrdersPanel })))
+const SupplierPaymentsPanel = lazy(() => import('@/components/panels/SupplierPayments').then(m => ({ default: m.SupplierPaymentsPanel })))
+const StockAdjustmentsPanel = lazy(() => import('@/components/panels/StockAdjustments').then(m => ({ default: m.StockAdjustmentsPanel })))
+const ExpenseBudgetsPanel = lazy(() => import('@/components/panels/ExpenseBudgets').then(m => ({ default: m.ExpenseBudgetsPanel })))
+const CustomerStatementsPanel = lazy(() => import('@/components/panels/CustomerStatements').then(m => ({ default: m.CustomerStatementsPanel })))
+const BarcodeLabelsPanel = lazy(() => import('@/components/panels/BarcodeLabels').then(m => ({ default: m.BarcodeLabelsPanel })))
+const GstReconciliationPanel = lazy(() => import('@/components/panels/GstReconciliation').then(m => ({ default: m.GstReconciliationPanel })))
 
 const NAV_ITEMS = [
   { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard, color: 'text-slate-600' },
@@ -47,16 +53,22 @@ const NAV_ITEMS = [
   { id: 'customers', label: 'Customers', icon: Users, color: 'text-pink-600' },
   { id: 'suppliers', label: 'Suppliers', icon: Building2, color: 'text-violet-600' },
   { id: 'purchaseorders', label: 'Purchase Orders', icon: PackageCheck, color: 'text-violet-600' },
+  { id: 'supplierpayments', label: 'Supplier Payments', icon: Wallet, color: 'text-orange-600' },
   { id: 'whatsapp', label: 'WhatsApp Enquiry', icon: MessageSquare, color: 'text-green-600' },
   { id: 'jobs', label: 'Service Jobs', icon: Wrench, color: 'text-blue-600' },
   { id: 'servicepayments', label: 'Service Payments', icon: Wallet, color: 'text-purple-600' },
   { id: 'serials', label: 'Serials & Warranty', icon: Boxes, color: 'text-indigo-600' },
   { id: 'amc', label: 'AMC Contract', icon: FileSignature, color: 'text-blue-600' },
   { id: 'expenses', label: 'Shop Expenses', icon: Receipt, color: 'text-red-600' },
+  { id: 'expensebudgets', label: 'Expense Budgets', icon: Target, color: 'text-purple-600' },
   { id: 'personal', label: 'Personal Expenditure', icon: PiggyBank, color: 'text-pink-600' },
+  { id: 'stockadjustments', label: 'Stock Adjustments', icon: ClipboardList, color: 'text-cyan-600' },
+  { id: 'barcodelabels', label: 'Barcode Labels', icon: Printer, color: 'text-teal-600' },
+  { id: 'customerstatements', label: 'Customer Statements', icon: FileBarChart, color: 'text-indigo-600' },
   { id: 'campaigns', label: 'Campaigns', icon: Megaphone, color: 'text-green-600' },
   { id: 'credit', label: 'Credit Control', icon: ShieldAlert, color: 'text-red-600' },
   { id: 'financials', label: 'Financials (P&L)', icon: FileSpreadsheet, color: 'text-indigo-600' },
+  { id: 'gstreconciliation', label: 'GST 2A/2B Reconciliation', icon: FileCheck2, color: 'text-rose-600' },
   { id: 'reports', label: 'Reports', icon: BarChart3, color: 'text-indigo-600' },
   { id: 'growth', label: 'Growth Hub', icon: Brain, color: 'text-violet-600' },
   { id: 'ai', label: 'AI Intelligence', icon: BrainCircuit, color: 'text-fuchsia-600' },
@@ -556,6 +568,9 @@ function HomeInner() {
             <PanelBoundary active={active} id="purchaseorders" mounted={mountedPanels.has('purchaseorders')}>
               <PurchaseOrdersPanel />
             </PanelBoundary>
+            <PanelBoundary active={active} id="supplierpayments" mounted={mountedPanels.has('supplierpayments')}>
+              <SupplierPaymentsPanel />
+            </PanelBoundary>
             <PanelBoundary active={active} id="whatsapp" mounted={mountedPanels.has('whatsapp')}>
               <WhatsAppPanel />
             </PanelBoundary>
@@ -574,8 +589,20 @@ function HomeInner() {
             <PanelBoundary active={active} id="expenses" mounted={mountedPanels.has('expenses')}>
               <ExpensesPanel />
             </PanelBoundary>
+            <PanelBoundary active={active} id="expensebudgets" mounted={mountedPanels.has('expensebudgets')}>
+              <ExpenseBudgetsPanel />
+            </PanelBoundary>
             <PanelBoundary active={active} id="personal" mounted={mountedPanels.has('personal')}>
               <PersonalExpenditurePanel />
+            </PanelBoundary>
+            <PanelBoundary active={active} id="stockadjustments" mounted={mountedPanels.has('stockadjustments')}>
+              <StockAdjustmentsPanel />
+            </PanelBoundary>
+            <PanelBoundary active={active} id="barcodelabels" mounted={mountedPanels.has('barcodelabels')}>
+              <BarcodeLabelsPanel />
+            </PanelBoundary>
+            <PanelBoundary active={active} id="customerstatements" mounted={mountedPanels.has('customerstatements')}>
+              <CustomerStatementsPanel />
             </PanelBoundary>
             <PanelBoundary active={active} id="campaigns" mounted={mountedPanels.has('campaigns')}>
               <CampaignsPanel />
@@ -585,6 +612,9 @@ function HomeInner() {
             </PanelBoundary>
             <PanelBoundary active={active} id="financials" mounted={mountedPanels.has('financials')}>
               <FinancialsPanel />
+            </PanelBoundary>
+            <PanelBoundary active={active} id="gstreconciliation" mounted={mountedPanels.has('gstreconciliation')}>
+              <GstReconciliationPanel />
             </PanelBoundary>
             <PanelBoundary active={active} id="reports" mounted={mountedPanels.has('reports')}>
               <ReportsPanel />

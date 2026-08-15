@@ -60,7 +60,15 @@ const nextConfig: NextConfig = {
       '@radix-ui/react-toast',
       '@radix-ui/react-toggle',
       '@radix-ui/react-tooltip',
+      // v13: Added for barcode scanning + PDF libs (large, tree-shakeable)
+      '@zxing/browser',
+      '@zxing/library',
+      'jspdf',
+      'jspdf-autotable',
+      'qrcode',
     ],
+    // v13: Optimize CSS for faster initial paint
+    optimizeCss: true,
   },
 
   // outputFileTracingIncludes: tells Next.js which files to include in the

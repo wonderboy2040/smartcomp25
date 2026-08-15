@@ -61,8 +61,26 @@
       "name": "Stock",
       "short_name": "Stock",
       "url": "/?tab=stock"
+    },
+    {
+      "name": "Service Jobs",
+      "short_name": "Jobs",
+      "url": "/?tab=jobs"
+    },
+    {
+      "name": "Scan Barcode",
+      "short_name": "Scan",
+      "url": "/?tab=stock"
+    },
+    {
+      "name": "Customer Portal",
+      "short_name": "Portal",
+      "url": "/portal"
     }
   ],
   "screenshots": [],
-  "prefer_related_applications": false
+  "prefer_related_applications": false,
+  "edge_side_panel": {
+    "preferred_width": 400
+  }
 }
