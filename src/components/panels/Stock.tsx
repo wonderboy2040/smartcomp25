@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect, useMemo, useCallback } from 'react'
-import { useFetch, apiPut, apiDelete } from '@/lib/api'
+import { useFetch, apiPut, apiDelete, apiPost } from '@/lib/api'
 import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -858,10 +858,20 @@ function ItemDialog({
 
 // ===== PURCHASE DIALOG — add multiple items at once =====
 interface PurchaseLine {
+  mode: 'existing' | 'new'
   itemId: string
   quantity: number
   costPrice: number
   sellingPrice: number
+  // New-item fields (used when mode === 'new')
+  newName: string
+  newSku: string
+  newCategory: string
+  newGstApplicable: boolean
+  newGstRate: number
+  newUnit: string
+  newHsnCode: string
+  newBarcode: string
 }
 
 function PurchaseDialog({
@@ -872,7 +882,21 @@ function PurchaseDialog({
   items: any[]
   refetch: () => void
 }) {
-  const emptyLine = (): PurchaseLine => ({ itemId: '', quantity: 1, costPrice: 0, sellingPrice: 0 })
+  const emptyLine = (): PurchaseLine => ({
+    mode: 'existing',
+    itemId: '',
+    quantity: 1,
+    costPrice: 0,
+    sellingPrice: 0,
+    newName: '',
+    newSku: '',
+    newCategory: 'General',
+    newGstApplicable: true,
+    newGstRate: 18,
+    newUnit: 'pcs',
+    newHsnCode: '',
+    newBarcode: '',
+  })
   const [lines, setLines] = useState<PurchaseLine[]>([emptyLine()])
   const [saving, setSaving] = useState(false)
   const { toast } = useToast()
@@ -899,30 +923,69 @@ function PurchaseDialog({
   const removeLine = (index: number) => setLines((prev) => prev.filter((_, i) => i !== index))
 
   const handleSave = async () => {
-    const validLines = lines.filter((l) => l.itemId && l.quantity > 0)
+    // Validate lines
+    const validExisting = lines.filter((l) => l.mode === 'existing' && l.itemId && l.quantity > 0)
+    const validNew = lines.filter((l) => l.mode === 'new' && l.newName.trim() && l.quantity > 0)
+    const validLines = [...validExisting, ...validNew]
+
     if (validLines.length === 0) {
       toast({ title: 'Add at least one item with quantity', variant: 'destructive' })
       return
     }
 
+    // Validate new-item lines have a name
+    const newWithoutName = lines.filter((l) => l.mode === 'new' && !l.newName.trim() && l.quantity > 0)
+    if (newWithoutName.length > 0) {
+      toast({ title: 'New items must have a name', variant: 'destructive' })
+      return
+    }
+
     setSaving(true)
     try {
+      let createdCount = 0
+      let updatedCount = 0
+
       for (const line of validLines) {
-        const currentItem = items.find((i) => i.id === line.itemId)
-        if (!currentItem) continue
+        if (line.mode === 'new') {
+          // Create the new item first, then set its quantity
+          const created: any = await apiPost('/api/items', {
+            name: line.newName.trim(),
+            sku: line.newSku.trim(),
+            category: line.newCategory,
+            barcode: line.newBarcode.trim(),
+            hsnCode: line.newHsnCode.trim(),
+            unit: line.newUnit,
+            gstApplicable: line.newGstApplicable,
+            gstRate: line.newGstRate,
+            costPrice: line.costPrice,
+            sellingPrice: line.sellingPrice,
+            quantity: line.quantity,
+            minQuantity: 0,
+          })
+          createdCount++
+          // The POST already sets quantity, so no need for a second PUT
+        } else {
+          // Existing item — add to current quantity
+          const currentItem = items.find((i) => i.id === line.itemId)
+          if (!currentItem) continue
 
-        const newQty = (Number(currentItem.quantity) || 0) + line.quantity
+          const newQty = (Number(currentItem.quantity) || 0) + line.quantity
 
-        await apiPut(`/api/items/${line.itemId}`, {
-          quantity: newQty,
-          costPrice: line.costPrice,
-          sellingPrice: line.sellingPrice,
-        })
+          await apiPut(`/api/items/${line.itemId}`, {
+            quantity: newQty,
+            costPrice: line.costPrice,
+            sellingPrice: line.sellingPrice,
+          })
+          updatedCount++
+        }
       }
 
+      const parts: string[] = []
+      if (createdCount > 0) parts.push(`${createdCount} new item(s) created`)
+      if (updatedCount > 0) parts.push(`${updatedCount} existing item(s) updated`)
       toast({
-        title: `Purchase added — ${validLines.length} item(s) updated ✓`,
-        description: 'Stock quantities have been increased.',
+        title: `Purchase added ✓`,
+        description: parts.join(' + ') + '. Stock updated.',
       })
       refetch()
       onOpenChange(false)
@@ -933,12 +996,13 @@ function PurchaseDialog({
     }
   }
 
-  const totalCost = lines.reduce((s, l) => s + l.quantity * l.costPrice, 0)
-  const totalSell = lines.reduce((s, l) => s + l.quantity * l.sellingPrice, 0)
+  const totalCost = lines.reduce((s, l) => s + (l.quantity > 0 ? l.quantity * l.costPrice : 0), 0)
+  const totalSell = lines.reduce((s, l) => s + (l.quantity > 0 ? l.quantity * l.sellingPrice : 0), 0)
+  const activeLines = lines.filter((l) => (l.mode === 'existing' ? l.itemId : l.newName.trim()) && l.quantity > 0)
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
+      <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <div className="w-8 h-8 rounded-lg bg-blue-100 flex items-center justify-center">
@@ -947,11 +1011,11 @@ function PurchaseDialog({
             Add Purchase
           </DialogTitle>
           <p className="text-sm text-slate-500 mt-0.5">
-            Select items and enter received quantities. Stock will be added to existing quantity.
+            Select existing items OR add new items directly. Stock will be updated automatically.
           </p>
         </DialogHeader>
 
-        <div className="space-y-2">
+        <div className="space-y-3">
           {/* Header row */}
           <div className="grid grid-cols-12 gap-2 px-1 text-xs font-semibold text-slate-500 uppercase tracking-wide">
             <div className="col-span-4">Item</div>
@@ -967,82 +1031,147 @@ function PurchaseDialog({
             return (
               <div
                 key={idx}
-                className="grid grid-cols-12 gap-2 p-2 rounded-lg border border-slate-200 bg-slate-50/60 items-center"
+                className={`rounded-lg border p-2 ${line.mode === 'new' ? 'border-blue-300 bg-blue-50/40' : 'border-slate-200 bg-slate-50/60'}`}
               >
-                {/* Item Select */}
-                <div className="col-span-4">
-                  <Select value={line.itemId} onValueChange={(v) => handleItemSelect(idx, v)}>
-                    <SelectTrigger className="h-9 text-sm bg-white">
-                      <SelectValue placeholder="Select item..." />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {items.map((i) => (
-                        <SelectItem key={i.id} value={i.id}>
-                          <span className="truncate">
-                            {i.name}
-                            {i.sku ? <span className="text-slate-400 ml-1">· {i.sku}</span> : null}
-                          </span>
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                  {item && (
-                    <p className="text-[10px] text-slate-400 mt-0.5 pl-1">
-                      Current stock: <span className="font-medium text-slate-600">{item.quantity} {item.unit || 'pcs'}</span>
-                    </p>
-                  )}
-                </div>
-
-                {/* Quantity */}
-                <div className="col-span-2">
-                  <Input
-                    type="number"
-                    min={1}
-                    value={line.quantity}
-                    onChange={(e) => updateLine(idx, { quantity: Math.max(1, Number(e.target.value)) })}
-                    className="h-9 text-center bg-white"
-                  />
-                </div>
-
-                {/* Cost Price */}
-                <div className="col-span-2">
-                  <Input
-                    type="number"
-                    min={0}
-                    step={0.01}
-                    value={line.costPrice}
-                    onChange={(e) => updateLine(idx, { costPrice: Number(e.target.value) })}
-                    className="h-9 text-center bg-white"
-                  />
-                </div>
-
-                {/* Selling Price */}
-                <div className="col-span-2">
-                  <Input
-                    type="number"
-                    min={0}
-                    step={0.01}
-                    value={line.sellingPrice}
-                    onChange={(e) => updateLine(idx, { sellingPrice: Number(e.target.value) })}
-                    className="h-9 text-center bg-white"
-                  />
-                </div>
-
-                {/* Total + Delete */}
-                <div className="col-span-2 flex items-center justify-between pl-1">
-                  <span className="text-sm font-semibold text-slate-800">
-                    {formatCurrency(line.quantity * line.costPrice)}
-                  </span>
+                {/* Mode toggle */}
+                <div className="flex items-center gap-1 mb-2">
+                  <button
+                    onClick={() => updateLine(idx, { mode: 'existing', itemId: '', newName: '' })}
+                    className={`px-2 py-0.5 rounded text-[10px] font-semibold transition-colors ${line.mode === 'existing' ? 'bg-slate-800 text-white' : 'bg-slate-200 text-slate-500'}`}
+                  >
+                    Existing Item
+                  </button>
+                  <button
+                    onClick={() => updateLine(idx, { mode: 'new', itemId: '' })}
+                    className={`px-2 py-0.5 rounded text-[10px] font-semibold transition-colors ${line.mode === 'new' ? 'bg-blue-600 text-white' : 'bg-slate-200 text-slate-500'}`}
+                  >
+                    + New Item
+                  </button>
                   {lines.length > 1 && (
                     <button
                       onClick={() => removeLine(idx)}
-                      className="ml-1 p-1 rounded hover:bg-red-100 text-red-400 hover:text-red-600 transition-colors"
+                      className="ml-auto p-1 rounded hover:bg-red-100 text-red-400 hover:text-red-600 transition-colors"
                       title="Remove row"
                     >
                       <Trash2 className="w-3.5 h-3.5" />
                     </button>
                   )}
                 </div>
+
+                {/* EXISTING ITEM MODE */}
+                {line.mode === 'existing' && (
+                  <div className="grid grid-cols-12 gap-2 items-center">
+                    <div className="col-span-4">
+                      <Select value={line.itemId} onValueChange={(v) => handleItemSelect(idx, v)}>
+                        <SelectTrigger className="h-9 text-sm bg-white">
+                          <SelectValue placeholder="Select item..." />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {items.map((i) => (
+                            <SelectItem key={i.id} value={i.id}>
+                              <span className="truncate">
+                                {i.name}
+                                {i.sku ? <span className="text-slate-400 ml-1">· {i.sku}</span> : null}
+                              </span>
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      {item && (
+                        <p className="text-[10px] text-slate-400 mt-0.5 pl-1">
+                          Current stock: <span className="font-medium text-slate-600">{item.quantity} {item.unit || 'pcs'}</span>
+                        </p>
+                      )}
+                    </div>
+                    <div className="col-span-2">
+                      <Input type="number" min={1} value={line.quantity} onChange={(e) => updateLine(idx, { quantity: Math.max(1, Number(e.target.value)) })} className="h-9 text-center bg-white" />
+                    </div>
+                    <div className="col-span-2">
+                      <Input type="number" min={0} step={0.01} value={line.costPrice} onChange={(e) => updateLine(idx, { costPrice: Number(e.target.value) })} className="h-9 text-center bg-white" />
+                    </div>
+                    <div className="col-span-2">
+                      <Input type="number" min={0} step={0.01} value={line.sellingPrice} onChange={(e) => updateLine(idx, { sellingPrice: Number(e.target.value) })} className="h-9 text-center bg-white" />
+                    </div>
+                    <div className="col-span-2 flex items-center pl-1">
+                      <span className="text-sm font-semibold text-slate-800">{formatCurrency(line.quantity * line.costPrice)}</span>
+                    </div>
+                  </div>
+                )}
+
+                {/* NEW ITEM MODE */}
+                {line.mode === 'new' && (
+                  <div className="space-y-2">
+                    {/* Row 1: Name + SKU + Category */}
+                    <div className="grid grid-cols-12 gap-2">
+                      <div className="col-span-5">
+                        <Label className="text-[9px] text-slate-500">Item Name *</Label>
+                        <Input value={line.newName} onChange={(e) => updateLine(idx, { newName: e.target.value })} placeholder="e.g. HP Laptop 15s" className="h-8 text-sm bg-white" />
+                      </div>
+                      <div className="col-span-3">
+                        <Label className="text-[9px] text-slate-500">SKU / Code</Label>
+                        <Input value={line.newSku} onChange={(e) => updateLine(idx, { newSku: e.target.value })} placeholder="HP-15S-001" className="h-8 text-sm bg-white" />
+                      </div>
+                      <div className="col-span-2">
+                        <Label className="text-[9px] text-slate-500">Category</Label>
+                        <Input value={line.newCategory} onChange={(e) => updateLine(idx, { newCategory: e.target.value })} placeholder="General" className="h-8 text-sm bg-white" list="purchase-categories" />
+                        <datalist id="purchase-categories">
+                          <option value="Laptop" />
+                          <option value="Desktop PC" />
+                          <option value="RAM / Memory" />
+                          <option value="SSD / Hard Drive" />
+                          <option value="Printer & Scanner" />
+                          <option value="General" />
+                          <option value="Accessories" />
+                          <option value="Networking" />
+                        </datalist>
+                      </div>
+                      <div className="col-span-2">
+                        <Label className="text-[9px] text-slate-500">Barcode</Label>
+                        <Input value={line.newBarcode} onChange={(e) => updateLine(idx, { newBarcode: e.target.value })} placeholder="Scan / type" className="h-8 text-sm bg-white" />
+                      </div>
+                    </div>
+                    {/* Row 2: Qty + Cost + Sell + GST + Unit + HSN */}
+                    <div className="grid grid-cols-12 gap-2">
+                      <div className="col-span-2">
+                        <Label className="text-[9px] text-slate-500">Qty Received *</Label>
+                        <Input type="number" min={1} value={line.quantity} onChange={(e) => updateLine(idx, { quantity: Math.max(1, Number(e.target.value)) })} className="h-8 text-center text-sm bg-white" />
+                      </div>
+                      <div className="col-span-2">
+                        <Label className="text-[9px] text-slate-500">Cost Price</Label>
+                        <Input type="number" min={0} step={0.01} value={line.costPrice} onChange={(e) => updateLine(idx, { costPrice: Number(e.target.value) })} className="h-8 text-center text-sm bg-white" />
+                      </div>
+                      <div className="col-span-2">
+                        <Label className="text-[9px] text-slate-500">Sell Price</Label>
+                        <Input type="number" min={0} step={0.01} value={line.sellingPrice} onChange={(e) => updateLine(idx, { sellingPrice: Number(e.target.value) })} className="h-8 text-center text-sm bg-white" />
+                      </div>
+                      <div className="col-span-2">
+                        <Label className="text-[9px] text-slate-500">GST %</Label>
+                        <div className="flex items-center gap-1">
+                          <Checkbox checked={line.newGstApplicable} onCheckedChange={(v) => updateLine(idx, { newGstApplicable: !!v })} className="h-3.5 w-3.5" />
+                          <Input type="number" min={0} max={100} value={line.newGstRate} onChange={(e) => updateLine(idx, { newGstRate: Number(e.target.value), newGstApplicable: true })} className="h-8 text-center text-sm bg-white" disabled={!line.newGstApplicable} />
+                        </div>
+                      </div>
+                      <div className="col-span-2">
+                        <Label className="text-[9px] text-slate-500">Unit</Label>
+                        <Input value={line.newUnit} onChange={(e) => updateLine(idx, { newUnit: e.target.value })} placeholder="pcs" className="h-8 text-center text-sm bg-white" />
+                      </div>
+                      <div className="col-span-2">
+                        <Label className="text-[9px] text-slate-500">HSN Code</Label>
+                        <Input value={line.newHsnCode} onChange={(e) => updateLine(idx, { newHsnCode: e.target.value })} placeholder="8471" className="h-8 text-center text-sm bg-white" />
+                      </div>
+                    </div>
+                    {/* Total cost for this line */}
+                    <div className="text-right">
+                      <span className="text-[10px] text-slate-500">Line total: </span>
+                      <span className="text-sm font-bold text-slate-800">{formatCurrency(line.quantity * line.costPrice)}</span>
+                      {line.sellingPrice > line.costPrice && (
+                        <span className="text-[10px] text-green-600 ml-2">
+                          Profit: {formatCurrency((line.sellingPrice - line.costPrice) * line.quantity)}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                )}
               </div>
             )
           })}
@@ -1059,11 +1188,11 @@ function PurchaseDialog({
         </div>
 
         {/* Summary */}
-        {lines.some((l) => l.itemId) && (
-          <div className="border-t border-slate-200 pt-3 grid grid-cols-3 gap-3 text-center">
+        {activeLines.length > 0 && (
+          <div className="border-t border-slate-200 pt-3 grid grid-cols-4 gap-3 text-center">
             <div className="rounded-lg bg-slate-100 p-2">
               <p className="text-[10px] text-slate-500 uppercase font-medium">Total Items</p>
-              <p className="text-lg font-bold text-slate-800">{lines.filter((l) => l.itemId).length}</p>
+              <p className="text-lg font-bold text-slate-800">{activeLines.length}</p>
             </div>
             <div className="rounded-lg bg-orange-50 border border-orange-100 p-2">
               <p className="text-[10px] text-orange-600 uppercase font-medium">Purchase Cost</p>
@@ -1072,6 +1201,12 @@ function PurchaseDialog({
             <div className="rounded-lg bg-green-50 border border-green-100 p-2">
               <p className="text-[10px] text-green-600 uppercase font-medium">Potential Profit</p>
               <p className="text-lg font-bold text-green-700">{formatCurrency(totalSell - totalCost)}</p>
+            </div>
+            <div className="rounded-lg bg-blue-50 border border-blue-100 p-2">
+              <p className="text-[10px] text-blue-600 uppercase font-medium">New / Existing</p>
+              <p className="text-lg font-bold text-blue-700">
+                {activeLines.filter((l) => l.mode === 'new').length} / {activeLines.filter((l) => l.mode === 'existing').length}
+              </p>
             </div>
           </div>
         )}
@@ -1082,7 +1217,7 @@ function PurchaseDialog({
           </Button>
           <Button
             onClick={handleSave}
-            disabled={saving || !lines.some((l) => l.itemId && l.quantity > 0)}
+            disabled={saving || activeLines.length === 0}
             className="bg-blue-600 hover:bg-blue-700 text-white"
           >
             {saving ? (
