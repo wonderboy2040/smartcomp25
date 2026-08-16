@@ -554,9 +554,27 @@ export function DocForm({ open, onOpenChange, docType, editing, onSaved }: DocFo
         return rest
       })
 
-      // In non-GST mode, force all items to have gstApplicable: false
+      // In non-GST mode, force all items to have gstApplicable: false, gstRate: 0,
+      // AND set the rate to the GST-inclusive price (selling price INCLUDING GST).
+      // This way, the printed Non-GST invoice shows the final price the customer
+      // pays (base + GST folded in), with no separate GST line items.
       const finalItems = gstMode === 'non-gst'
-        ? cleanItems.map((i: any) => ({ ...i, gstApplicable: false, gstRate: 0 }))
+        ? cleanItems.map((i: any) => {
+            const baseRate = Number(i.rate) || 0
+            const gstRate = Number(i.gstRate) || 0
+            const wasGstApplicable = i.gstApplicable === true || i.gstApplicable === 'true'
+            // If the item had GST, fold the GST into the rate so the
+            // non-GST invoice shows the all-inclusive selling price.
+            const finalRate = wasGstApplicable && gstRate > 0
+              ? Math.round(baseRate * (1 + gstRate / 100) * 100) / 100
+              : baseRate
+            return {
+              ...i,
+              rate: finalRate,
+              gstApplicable: false,
+              gstRate: 0,
+            }
+          })
         : cleanItems
 
       const payload: any = {
@@ -737,7 +755,7 @@ export function DocForm({ open, onOpenChange, docType, editing, onSaved }: DocFo
               </Select>
               {gstMode === 'non-gst' && (
                 <p className="text-[10px] text-amber-700 mt-1 font-medium">
-                  ⚠️ Non-GST mode: HSN, GST columns, CGST/SGST hidden. For walk-in customers only.
+                  ⚠️ Non-GST mode: HSN, GST columns, CGST/SGST hidden. Item rates auto-include GST (final selling price). For walk-in customers only.
                 </p>
               )}
             </div>
@@ -838,26 +856,37 @@ export function DocForm({ open, onOpenChange, docType, editing, onSaved }: DocFo
                         <TableCell>
                           <Input type="number" value={item.rate} onChange={(e) => updateItem(idx, { rate: Number(e.target.value) })} className="h-9 text-sm font-bold bg-white border-slate-200" />
                           <div className="text-[10px] text-slate-500 mt-1">Cost: Rs.{item.costPrice || 0}</div>
-                          {item.gstApplicable && Number(item.gstRate) > 0 && (
+                          {gstMode === 'non-gst' ? (
+                            <div className="text-[10px] text-amber-600 font-medium mt-0.5">
+                              Non-GST: rate includes GST
+                            </div>
+                          ) : item.gstApplicable && Number(item.gstRate) > 0 ? (
                             <div className="text-[10px] text-emerald-600 font-medium mt-0.5">
                               incl GST: Rs.{((Number(item.rate) || 0) * (1 + (Number(item.gstRate) || 0) / 100)).toFixed(0)}
                             </div>
-                          )}
+                          ) : null}
                         </TableCell>
                         <TableCell><Input type="number" value={item.discount || 0} onChange={(e) => updateItem(idx, { discount: Number(e.target.value) })} className="h-9 text-sm bg-white border-slate-200" /></TableCell>
                         <TableCell className="text-center">
-                          <div className="flex flex-col items-center gap-1">
-                            <Checkbox checked={item.gstApplicable} onCheckedChange={(v) => updateItem(idx, { gstApplicable: v === true })} />
-                            {item.gstApplicable ? (
-                              <select value={item.gstRate} onChange={(e) => updateItem(idx, { gstRate: Number(e.target.value) })} className="text-[10px] font-bold text-slate-700 bg-white border border-slate-200 rounded px-1 py-0.5 w-14 text-center cursor-pointer">
-                                <option value={5}>5%</option><option value={12}>12%</option><option value={18}>18%</option><option value={28}>28%</option>
-                              </select>
-                            ) : <span className="text-[10px] font-bold text-slate-400">No GST</span>}
-                          </div>
+                          {gstMode === 'non-gst' ? (
+                            <span className="text-[10px] font-bold text-amber-600">incl GST</span>
+                          ) : (
+                            <div className="flex flex-col items-center gap-1">
+                              <Checkbox checked={item.gstApplicable} onCheckedChange={(v) => updateItem(idx, { gstApplicable: v === true })} />
+                              {item.gstApplicable ? (
+                                <select value={item.gstRate} onChange={(e) => updateItem(idx, { gstRate: Number(e.target.value) })} className="text-[10px] font-bold text-slate-700 bg-white border border-slate-200 rounded px-1 py-0.5 w-14 text-center cursor-pointer">
+                                  <option value={5}>5%</option><option value={12}>12%</option><option value={18}>18%</option><option value={28}>28%</option>
+                                </select>
+                              ) : <span className="text-[10px] font-bold text-slate-400">No GST</span>}
+                            </div>
+                          )}
                         </TableCell>
                         <TableCell className="text-right text-sm font-medium text-slate-900">{formatCurrency(computed.amount)}</TableCell>
                         <TableCell className="text-right">
                           <div className="text-sm font-bold text-slate-900">{formatCurrency(computed.total)}</div>
+                          {gstMode === 'non-gst' && (
+                            <div className="text-[10px] text-amber-600 font-medium">incl GST</div>
+                          )}
                           <div className="text-[10px] text-emerald-600 font-semibold">Profit: {formatCurrency(computed.profit)}</div>
                         </TableCell>
                         <TableCell><Button variant="ghost" size="sm" onClick={() => removeItem(idx)} className="h-8 w-8 p-0 hover:bg-red-50"><Trash2 className="w-4 h-4 text-red-500" /></Button></TableCell>
@@ -916,8 +945,8 @@ export function DocForm({ open, onOpenChange, docType, editing, onSaved }: DocFo
                       <div className="text-right">
                         <div className="text-xs text-slate-500">Total</div>
                         <div className="text-sm font-bold text-slate-900">{formatCurrency(computed.total)}</div>
-                        {item.gstApplicable && Number(item.gstRate) > 0 && (
-                          <div className="text-[10px] text-emerald-600 font-medium">incl GST: Rs.{(Number(computed.total) * (1 + (Number(item.gstRate) || 0) / 100)).toFixed(0)}</div>
+                        {gstMode === 'non-gst' && (
+                          <div className="text-[10px] text-amber-600 font-medium">incl GST (folded)</div>
                         )}
                         <div className="text-[10px] text-emerald-600 font-bold">Profit {formatCurrency(computed.profit)}</div>
                       </div>
