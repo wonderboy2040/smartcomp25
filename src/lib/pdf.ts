@@ -550,6 +550,11 @@ export async function generateInvoicePdf(data: PdfDocData): Promise<Buffer> {
   const effectiveGstRate = data.calc.items.find((i) => i.gstApplicable && Number(i.gstRate) > 0)?.gstRate || 18
   const halfGstRate = effectiveGstRate / 2
 
+  // v13.4: Determine if this is inter-state (IGST) or intra-state (CGST+SGST)
+  const shopStateCode = data.shop.state ? getStateCode(data.shop.state) : ''
+  const custStateCode = data.customer.state ? getStateCode(data.customer.state) : ''
+  const isInterState = !!(shopStateCode && custStateCode && shopStateCode !== custStateCode)
+
   // Calculations Box Right Side
   doc.setFillColor(...N.bgRow)
   doc.setDrawColor(...N.border)
@@ -566,8 +571,14 @@ export async function generateInvoicePdf(data: PdfDocData): Promise<Buffer> {
   }
 
   drawRow('Sub Total', formatCurrency(data.calc.subtotal))
-  if (!isNonGst && data.calc.cgstAmount > 0) drawRow(`CGST (${halfGstRate}%)`, formatCurrency(data.calc.cgstAmount))
-  if (!isNonGst && data.calc.sgstAmount > 0) drawRow(`SGST (${halfGstRate}%)`, formatCurrency(data.calc.sgstAmount))
+  if (!isNonGst && data.calc.gstAmount > 0) {
+    if (isInterState) {
+      drawRow(`IGST (${effectiveGstRate}%)`, formatCurrency(data.calc.gstAmount))
+    } else {
+      if (data.calc.cgstAmount > 0) drawRow(`CGST (${halfGstRate}%)`, formatCurrency(data.calc.cgstAmount))
+      if (data.calc.sgstAmount > 0) drawRow(`SGST (${halfGstRate}%)`, formatCurrency(data.calc.sgstAmount))
+    }
+  }
   if (data.calc.courierCharges > 0) drawRow('Courier Charges', formatCurrency(data.calc.courierCharges))
   if (data.calc.otherCharges > 0) drawRow('Other Charges', formatCurrency(data.calc.otherCharges))
   if (data.calc.discount > 0) drawRow('Discount', `- ${formatCurrency(data.calc.discount)}`, true, N.green)

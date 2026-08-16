@@ -838,6 +838,11 @@ export function DocForm({ open, onOpenChange, docType, editing, onSaved }: DocFo
                         <TableCell>
                           <Input type="number" value={item.rate} onChange={(e) => updateItem(idx, { rate: Number(e.target.value) })} className="h-9 text-sm font-bold bg-white border-slate-200" />
                           <div className="text-[10px] text-slate-500 mt-1">Cost: Rs.{item.costPrice || 0}</div>
+                          {item.gstApplicable && Number(item.gstRate) > 0 && (
+                            <div className="text-[10px] text-emerald-600 font-medium mt-0.5">
+                              incl GST: Rs.{((Number(item.rate) || 0) * (1 + (Number(item.gstRate) || 0) / 100)).toFixed(0)}
+                            </div>
+                          )}
                         </TableCell>
                         <TableCell><Input type="number" value={item.discount || 0} onChange={(e) => updateItem(idx, { discount: Number(e.target.value) })} className="h-9 text-sm bg-white border-slate-200" /></TableCell>
                         <TableCell className="text-center">
@@ -911,6 +916,9 @@ export function DocForm({ open, onOpenChange, docType, editing, onSaved }: DocFo
                       <div className="text-right">
                         <div className="text-xs text-slate-500">Total</div>
                         <div className="text-sm font-bold text-slate-900">{formatCurrency(computed.total)}</div>
+                        {item.gstApplicable && Number(item.gstRate) > 0 && (
+                          <div className="text-[10px] text-emerald-600 font-medium">incl GST: Rs.{(Number(computed.total) * (1 + (Number(item.gstRate) || 0) / 100)).toFixed(0)}</div>
+                        )}
                         <div className="text-[10px] text-emerald-600 font-bold">Profit {formatCurrency(computed.profit)}</div>
                       </div>
                     </div>
@@ -1164,6 +1172,9 @@ export function DocForm({ open, onOpenChange, docType, editing, onSaved }: DocFo
                         <TableCell className="text-right">
                           <div className="text-sm font-bold text-slate-900">Rs.{item.sellingPrice}</div>
                           <div className="text-[11px] text-slate-500">Cost Rs.{item.costPrice}</div>
+                          {item.gstApplicable && Number(item.gstRate) > 0 && (
+                            <div className="text-[10px] text-emerald-600 font-medium">incl GST: Rs.{((Number(item.sellingPrice) || 0) * (1 + (Number(item.gstRate) || 0) / 100)).toFixed(0)}</div>
+                          )}
                           <div className="text-[10px] font-bold text-emerald-600">Profit Rs.{Number(item.sellingPrice) - Number(item.costPrice)} ({margin}%)</div>
                         </TableCell>
                         <TableCell>
