@@ -67,8 +67,6 @@ const nextConfig: NextConfig = {
       'jspdf-autotable',
       'qrcode',
     ],
-    // v13: Optimize CSS for faster initial paint
-    optimizeCss: true,
   },
 
   // outputFileTracingIncludes: tells Next.js which files to include in the

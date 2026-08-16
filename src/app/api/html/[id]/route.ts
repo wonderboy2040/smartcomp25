@@ -28,7 +28,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
         number: invoice.number,
         date: invoice.date || invoice.createdAt,
         docType: 'invoice',
-        title: 'TAX INVOICE',
+        title: 'INVOICE',
         calc,
         customerName: invoice.customerName || 'Walk-in',
         customerPhone: invoice.customerPhone || '',

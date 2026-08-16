@@ -313,13 +313,11 @@ export async function generateInvoiceHtml(
   const isService = data.docType === 'service'
   const isNonGst = data.gstMode === 'non-gst'
 
-  const docTitle = isNonGst
-    ? (isService ? 'RETAIL BILL' : 'RETAIL INVOICE')
-    : isInvoice
-      ? 'TAX INVOICE'
-      : isService
-        ? 'SERVICE INVOICE'
-        : 'QUOTATION'
+  const docTitle = isInvoice
+    ? 'INVOICE'
+    : isService
+      ? (isNonGst ? 'SERVICE BILL' : 'SERVICE INVOICE')
+      : 'QUOTATION'
 
   const shopState = (data.shop.state || '').toLowerCase()
   const custState = (data.customer.state || '').toLowerCase()
@@ -1140,7 +1138,6 @@ export async function generateInvoiceHtml(
             ${data.shop.state ? `<div>${escapeHtml(data.shop.state)}${shopStateCode ? ` (${shopStateCode})` : ''}</div>` : ''}
             ${data.shop.phone || data.shop.email ? `<div>${data.shop.phone ? `Ph: ${escapeHtml(data.shop.phone)}` : ''}${data.shop.phone && data.shop.email ? ' &nbsp;|&nbsp; ' : ''}${data.shop.email ? escapeHtml(data.shop.email) : ''}</div>` : ''}
             ${data.shop.gstNumber && !isNonGst ? `<div class="gst">GSTIN: ${escapeHtml(data.shop.gstNumber)}</div>` : ''}
-            ${isNonGst ? `<div class="gst" style="color:${tpl.accent};">RETAIL INVOICE (Non-GST)</div>` : ''}
           </div>
         </div>
       </div>
@@ -1161,7 +1158,7 @@ export async function generateInvoiceHtml(
         <div class="cname">${escapeHtml(data.customer.name || 'Walk-in Customer')}</div>
         ${data.customer.address ? `<div class="cline">${escapeHtml(data.customer.address)}</div>` : ''}
         ${data.customer.phone ? `<div class="cline">Mobile: ${escapeHtml(data.customer.phone)}</div>` : ''}
-        ${!isService && data.customer.gstNumber ? `<div class="cline gst">GSTIN: ${escapeHtml(data.customer.gstNumber)}</div>` : ''}
+        ${!isService && !isNonGst && data.customer.gstNumber ? `<div class="cline gst">GSTIN: ${escapeHtml(data.customer.gstNumber)}</div>` : ''}
         ${!isService && data.customer.state ? `<div class="cline">State: ${escapeHtml(data.customer.state)}${custStateCode ? ` (${custStateCode})` : ''}</div>` : ''}
       </div>
       <div class="bill-box">

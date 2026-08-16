@@ -321,12 +321,6 @@ export async function generateInvoicePdf(data: PdfDocData): Promise<Buffer> {
     doc.setFontSize(7.5)
     doc.setTextColor(...HT)
     doc.text(`GSTIN: ${data.shop.gstNumber}`, shopNameX, currentHeaderY)
-  } else if (isNonGst) {
-    // For non-GST invoices, show "Retail Invoice" tag instead of GSTIN
-    doc.setFont('helvetica', 'bold')
-    doc.setFontSize(7.5)
-    doc.setTextColor(...A)
-    doc.text('RETAIL INVOICE (Non-GST)', shopNameX, currentHeaderY)
   }
 
   // Right Side Document Title Block - "INVOICE" badge with Copy Type Subtitle
@@ -337,16 +331,18 @@ export async function generateInvoicePdf(data: PdfDocData): Promise<Buffer> {
   doc.setFont('helvetica', 'bold')
   doc.setFontSize(11)
   doc.setTextColor(...(lightHeader ? A : N.white))
-  const docTitle = isNonGst
-    ? (isService ? 'RETAIL BILL' : 'RETAIL INVOICE')
-    : isInvoice ? 'TAX INVOICE' : isService ? 'SERVICE INVOICE' : 'QUOTATION'
+  const docTitle = isInvoice
+    ? 'INVOICE'
+    : isService
+      ? (isNonGst ? 'SERVICE BILL' : 'SERVICE INVOICE')
+      : 'QUOTATION'
   doc.text(docTitle, titleBoxX + 29, 13, { align: 'center' })
 
   // Subtitle Copy Type Tag
   doc.setFont('helvetica', 'bold')
   doc.setFontSize(5.5)
   doc.setTextColor(...(lightHeader ? A : N.white))
-  const copySubtitle = data.copyType || (isNonGst ? 'RETAIL COPY' : isInvoice ? 'ORIGINAL FOR RECIPIENT' : 'OFFICIAL DOCUMENT')
+  const copySubtitle = data.copyType || (isInvoice || isNonGst ? 'ORIGINAL FOR RECIPIENT' : 'OFFICIAL DOCUMENT')
   doc.text(copySubtitle, titleBoxX + 29, 16.5, { align: 'center' })
 
   doc.setFont('helvetica', 'normal')
@@ -396,7 +392,7 @@ export async function generateInvoicePdf(data: PdfDocData): Promise<Buffer> {
     doc.text(`Mobile: ${data.customer.phone}`, billX + 3, custY)
     custY += 3
   }
-  if (data.customer.gstNumber) {
+  if (data.customer.gstNumber && !isNonGst) {
     doc.setFont('helvetica', 'bold')
     doc.text(`GSTIN: ${data.customer.gstNumber}`, billX + 3, custY)
   }
