@@ -12,7 +12,9 @@ import {
   ShoppingBag, Wrench,
   ShieldCheck,
   Plus, FileCheck2, PackagePlus, Bell,
+  TrendingDown, Award, Percent,
 } from 'lucide-react'
+import { LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from 'recharts'
 
 export function DashboardView({ onNavigate, sheetsConnected = true }: { onNavigate: (tab: string) => void; sheetsConnected?: boolean }) {
   const { data, loading, refetch } = useFetch<any>('/api/dashboard', undefined)
@@ -22,6 +24,9 @@ export function DashboardView({ onNavigate, sheetsConnected = true }: { onNaviga
   const pendingInvoices = data?.pendingInvoices || []
   const recentEnquiries = data?.recentEnquiries || []
   const lowStockList = data?.lowStockList || []
+  const salesTrend = data?.salesTrend || []
+  const topCustomers = data?.topCustomers || []
+  const lowMarginProducts = data?.lowMarginProducts || []
 
   const profitMargin = stats.monthSales ? ((stats.monthProfit / stats.monthSales) * 100).toFixed(1) : '0'
 
@@ -328,6 +333,149 @@ export function DashboardView({ onNavigate, sheetsConnected = true }: { onNaviga
             </Card>
           </div>
         </>
+      )}
+
+      {/* Sales Trend Graph */}
+      {salesTrend.length > 0 && (
+        <Card className="border-slate-200 shadow-sm">
+          <CardHeader className="pb-3">
+            <CardTitle className="text-base flex items-center gap-2">
+              <div className="w-7 h-7 bg-indigo-100 rounded-lg flex items-center justify-center">
+                <TrendingUp className="w-3.5 h-3.5 text-indigo-600" />
+              </div>
+              Sales Trend - Last 7 Days
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="pt-0">
+            <ResponsiveContainer width="100%" height={250}>
+              <LineChart data={salesTrend}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
+                <XAxis dataKey="dayName" stroke="#64748b" fontSize={12} />
+                <YAxis stroke="#64748b" fontSize={12} />
+                <Tooltip
+                  contentStyle={{
+                    backgroundColor: '#fff',
+                    border: '1px solid #e2e8f0',
+                    borderRadius: '8px',
+                    fontSize: '12px',
+                  }}
+                  formatter={(value: any) => `Rs.${Number(value).toLocaleString('en-IN')}`}
+                />
+                <Legend fontSize={12} />
+                <Line
+                  type="monotone"
+                  dataKey="sales"
+                  stroke="#6366f1"
+                  strokeWidth={2}
+                  dot={{ fill: '#6366f1', r: 4 }}
+                  name="Sales"
+                />
+                <Line
+                  type="monotone"
+                  dataKey="profit"
+                  stroke="#10b981"
+                  strokeWidth={2}
+                  dot={{ fill: '#10b981', r: 4 }}
+                  name="Profit"
+                />
+              </LineChart>
+            </ResponsiveContainer>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Top Customers Widget */}
+      {topCustomers.length > 0 && (
+        <Card className="border-slate-200 shadow-sm">
+          <CardHeader className="pb-3">
+            <div className="flex items-center justify-between">
+              <CardTitle className="text-base flex items-center gap-2">
+                <div className="w-7 h-7 bg-amber-100 rounded-lg flex items-center justify-center">
+                  <Award className="w-3.5 h-3.5 text-amber-600" />
+                </div>
+                Top Customers
+              </CardTitle>
+              <Button variant="ghost" size="sm" onClick={() => onNavigate('customers')} className="text-xs h-8">
+                View All →
+              </Button>
+            </div>
+          </CardHeader>
+          <CardContent className="pt-0">
+            <div className="space-y-3">
+              {topCustomers.map((customer: any, idx: number) => (
+                <div
+                  key={customer.id}
+                  className="flex items-center gap-3 p-2.5 rounded-lg hover:bg-slate-50 cursor-pointer transition-colors"
+                  onClick={() => onNavigate('customers')}
+                >
+                  <div className="w-8 h-8 rounded-full bg-gradient-to-br from-amber-400 to-orange-500 flex items-center justify-center flex-shrink-0">
+                    <span className="text-white font-bold text-sm">#{idx + 1}</span>
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <p className="text-sm font-medium text-slate-900 truncate">{customer.name}</p>
+                    <p className="text-xs text-slate-500">
+                      {customer.invoiceCount} orders • Avg: {formatCurrency(customer.avgOrderValue)}
+                    </p>
+                  </div>
+                  <div className="text-right flex-shrink-0">
+                    <p className="text-sm font-semibold text-slate-900">{formatCurrency(customer.totalValue)}</p>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Low Margin Products Alert */}
+      {lowMarginProducts.length > 0 && (
+        <Card className="border-orange-200 shadow-sm bg-orange-50/50">
+          <CardHeader className="pb-3">
+            <div className="flex items-center justify-between">
+              <CardTitle className="text-base flex items-center gap-2">
+                <div className="w-7 h-7 bg-orange-100 rounded-lg flex items-center justify-center">
+                  <TrendingDown className="w-3.5 h-3.5 text-orange-600" />
+                </div>
+                Low Margin Products
+              </CardTitle>
+              <Button variant="ghost" size="sm" onClick={() => onNavigate('stock')} className="text-xs h-8">
+                Manage →
+              </Button>
+            </div>
+          </CardHeader>
+          <CardContent className="pt-0">
+            <div className="space-y-2 max-h-72 overflow-y-auto">
+              {lowMarginProducts.map((item: any) => (
+                <div
+                  key={item.id}
+                  className="flex items-center justify-between p-2.5 rounded-lg bg-white border border-orange-100"
+                >
+                  <div className="min-w-0 flex-1">
+                    <p className="text-sm font-medium text-slate-900 truncate">{item.name}</p>
+                    <p className="text-xs text-slate-500">
+                      Cost: {formatCurrency(item.costPrice)} • Sell: {formatCurrency(item.sellingPrice)}
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-2 flex-shrink-0 ml-2">
+                    <Badge
+                      variant="outline"
+                      className={`text-[10px] ${
+                        item.profitMargin < 5
+                          ? 'bg-red-50 text-red-700 border-red-200'
+                          : item.profitMargin < 10
+                          ? 'bg-orange-50 text-orange-700 border-orange-200'
+                          : 'bg-amber-50 text-amber-700 border-amber-200'
+                      }`}
+                    >
+                      <Percent className="w-3 h-3 mr-0.5" />
+                      {item.profitMargin}% margin
+                    </Badge>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
       )}
 
       {/* Recent Activity - 2 columns */}

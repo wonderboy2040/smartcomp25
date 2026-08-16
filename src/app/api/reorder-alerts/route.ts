@@ -1,0 +1,153 @@
+import { NextRequest, NextResponse } from 'next/server'
+import { listRows, createRow, updateRow, isConfigured } from '@/lib/sheets-client'
+import { apiLimiter, getClientIp } from '@/lib/rate-limit'
+
+/**
+ * Reorder Point Automation API
+ * Checks stock levels and auto-generates purchase orders for low-stock items
+ * Can be triggered manually or via cron job
+ */
+
+export async function GET(req: NextRequest) {
+  try {
+    const ip = getClientIp(req)
+    const check = apiLimiter(ip)
+    if (!check.allowed) return NextResponse.json({ error: 'Rate limited' }, { status: 429 })
+
+    if (!isConfigured()) return NextResponse.json({ lowStockItems: [], suggestions: [] })
+
+    // Get all items
+    const items = await listRows<any>('Items')
+
+    // Find items that need reordering
+    const lowStockItems = items.filter((item) => {
+      const qty = Number(item.quantity) || 0
+      const minQty = Number(item.minQuantity) || 0
+      return qty <= minQty && minQty > 0
+    })
+
+    // Generate reorder suggestions
+    const suggestions = lowStockItems.map((item) => {
+      const currentQty = Number(item.quantity) || 0
+      const minQty = Number(item.minQuantity) || 0
+      const reorderQty = Math.max(minQty * 2, 10) // Order 2x minimum or 10 units, whichever is higher
+
+      return {
+        itemId: item.id,
+        itemName: item.name,
+        sku: item.sku || '',
+        currentQuantity: currentQty,
+        minQuantity: minQty,
+        suggestedOrderQuantity: reorderQty,
+        preferredSupplierId: item.preferredSupplierId || '',
+        preferredSupplierName: item.preferredSupplierName || '',
+        estimatedCost: (Number(item.costPrice) || 0) * reorderQty,
+        priority: currentQty === 0 ? 'urgent' : currentQty < minQty / 2 ? 'high' : 'normal',
+      }
+    })
+
+    // Sort by priority
+    suggestions.sort((a, b) => {
+      const priorityOrder = { urgent: 0, high: 1, normal: 2 }
+      return priorityOrder[a.priority as keyof typeof priorityOrder] - priorityOrder[b.priority as keyof typeof priorityOrder]
+    })
+
+    return NextResponse.json({
+      lowStockItems,
+      suggestions,
+      totalLowStock: lowStockItems.length,
+      urgentCount: suggestions.filter((s) => s.priority === 'urgent').length,
+      timestamp: new Date().toISOString(),
+    }, {
+      headers: { 'X-RateLimit-Remaining': check.remaining.toString() },
+    })
+  } catch (e: any) {
+    return NextResponse.json({ error: e?.message }, { status: 500 })
+  }
+}
+
+/**
+ * Auto-generate purchase orders for low stock items
+ */
+export async function POST(req: NextRequest) {
+  try {
+    const ip = getClientIp(req)
+    const check = apiLimiter(ip)
+    if (!check.allowed) return NextResponse.json({ error: 'Rate limited' }, { status: 429 })
+
+    const body = await req.json()
+    const { itemIds, autoSend = false } = body
+
+    if (!Array.isArray(itemIds) || itemIds.length === 0) {
+      return NextResponse.json({ error: 'Item IDs required' }, { status: 400 })
+    }
+
+    const items = await listRows<any>('Items')
+    const suppliers = await listRows<any>('Suppliers')
+
+    // Group items by supplier
+    const supplierGroups = new Map<string, any[]>()
+
+    for (const itemId of itemIds) {
+      const item = items.find((i) => i.id === itemId)
+      if (!item) continue
+
+      const supplierId = item.preferredSupplierId || 'default'
+      if (!supplierGroups.has(supplierId)) {
+        supplierGroups.set(supplierId, [])
+      }
+      supplierGroups.get(supplierId)!.push(item)
+    }
+
+    // Create purchase orders for each supplier
+    const createdOrders: any[] = []
+
+    for (const [supplierId, supplierItems] of supplierGroups.entries()) {
+      const supplier = suppliers.find((s) => s.id === supplierId)
+
+      // Calculate order items
+      const orderItems = supplierItems.map((item) => {
+        const minQty = Number(item.minQuantity) || 0
+        const reorderQty = Math.max(minQty * 2, 10)
+        return {
+          itemId: item.id,
+          itemName: item.name,
+          sku: item.sku || '',
+          quantity: reorderQty,
+          rate: Number(item.costPrice) || 0,
+          amount: (Number(item.costPrice) || 0) * reorderQty,
+        }
+      })
+
+      const totalAmount = orderItems.reduce((sum, item) => sum + item.amount, 0)
+
+      // Create purchase order
+      const po = await createRow('PurchaseOrders', {
+        supplierId: supplierId === 'default' ? '' : supplierId,
+        supplierName: supplier?.name || 'Multiple Suppliers',
+        supplierPhone: supplier?.phone || '',
+        itemsJson: JSON.stringify(orderItems),
+        totalAmount,
+        status: autoSend ? 'sent' : 'draft',
+        orderDate: new Date().toISOString(),
+        expectedDeliveryDate: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(), // 7 days from now
+        notes: `Auto-generated reorder for ${supplierItems.length} low-stock items`,
+        autoGenerated: true,
+      })
+
+      createdOrders.push(po)
+
+      // TODO: Send WhatsApp message to supplier if autoSend is true
+    }
+
+    return NextResponse.json({
+      success: true,
+      ordersCreated: createdOrders.length,
+      orders: createdOrders,
+    }, {
+      headers: { 'X-RateLimit-Remaining': check.remaining.toString() },
+    })
+  } catch (e: any) {
+    return NextResponse.json({ error: e?.message }, { status: 500 })
+  }
+}
