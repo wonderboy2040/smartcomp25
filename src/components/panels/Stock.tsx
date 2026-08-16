@@ -319,6 +319,11 @@ export function StockPanel() {
                     <div>
                       <span className="text-slate-500">Selling: </span>
                       <span className="font-medium">{formatCurrency(item.sellingPrice)}</span>
+                      {item.gstApplicable && Number(item.gstRate) > 0 && (
+                        <span className="text-[10px] text-emerald-600 block font-medium">
+                          incl GST: {formatCurrency(Number(item.sellingPrice) * (1 + (Number(item.gstRate) || 0) / 100))}
+                        </span>
+                      )}
                     </div>
                   </div>
                   <div className="flex items-center justify-between mt-2 flex-wrap gap-1">
@@ -417,7 +422,14 @@ export function StockPanel() {
                           )}
                         </TableCell>
                         <TableCell className="text-right text-sm">{formatCurrency(item.costPrice)}</TableCell>
-                        <TableCell className="text-right text-sm font-medium">{formatCurrency(item.sellingPrice)}</TableCell>
+                        <TableCell className="text-right text-sm font-medium">
+                          {formatCurrency(item.sellingPrice)}
+                          {item.gstApplicable && Number(item.gstRate) > 0 && (
+                            <p className="text-[10px] text-emerald-600 font-normal">
+                              incl GST {formatCurrency(Number(item.sellingPrice) * (1 + (Number(item.gstRate) || 0) / 100))}
+                            </p>
+                          )}
+                        </TableCell>
                         <TableCell className="text-center">
                           <Badge
                             variant="outline"
