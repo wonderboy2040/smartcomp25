@@ -48,6 +48,7 @@ export function StockPanel() {
   const [categoryFilter, setCategoryFilter] = useState('all')
   const [showLowOnly, setShowLowOnly] = useState(false)
   const [dialogOpen, setDialogOpen] = useState(false)
+  const [purchaseDialogOpen, setPurchaseDialogOpen] = useState(false)
   const [editing, setEditing] = useState<any | null>(null)
   const { toast } = useToast()
 
@@ -90,6 +91,10 @@ export function StockPanel() {
   const handleAdd = useCallback(() => {
     setEditing(null)
     setDialogOpen(true)
+  }, [])
+
+  const handleAddPurchase = useCallback(() => {
+    setPurchaseDialogOpen(true)
   }, [])
 
   const handleEdit = useCallback((item: any) => {
@@ -135,6 +140,9 @@ export function StockPanel() {
             downloadCSV(csv, `stock-${new Date().toISOString().split('T')[0]}.csv`)
           }} className="h-11" size="sm">
             <Download className="w-4 h-4 mr-1" /> Export CSV
+          </Button>
+          <Button onClick={handleAddPurchase} variant="outline" className="bg-blue-50 hover:bg-blue-100 text-blue-700 border-blue-200 h-11">
+            <Package className="w-4 h-4 mr-1.5" /> Add Purchase
           </Button>
           <Button onClick={handleAdd} className="bg-slate-900 hover:bg-slate-800 dark:bg-violet-600 dark:hover:bg-violet-700 text-white h-11">
             <Plus className="w-4 h-4 mr-1.5" /> Add Item
@@ -475,6 +483,13 @@ export function StockPanel() {
           setDialogOpen(false)
           refetch()
         }}
+      />
+
+      <PurchaseDialog
+        open={purchaseDialogOpen}
+        onOpenChange={setPurchaseDialogOpen}
+        items={items || []}
+        refetch={refetch}
       />
     </div>
   )
@@ -836,6 +851,247 @@ function ItemDialog({
             hint="Point at product barcode or QR code to attach to this item"
           />
         )}
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+// ===== PURCHASE DIALOG — add multiple items at once =====
+interface PurchaseLine {
+  itemId: string
+  quantity: number
+  costPrice: number
+  sellingPrice: number
+}
+
+function PurchaseDialog({
+  open, onOpenChange, items, refetch,
+}: {
+  open: boolean
+  onOpenChange: (v: boolean) => void
+  items: any[]
+  refetch: () => void
+}) {
+  const emptyLine = (): PurchaseLine => ({ itemId: '', quantity: 1, costPrice: 0, sellingPrice: 0 })
+  const [lines, setLines] = useState<PurchaseLine[]>([emptyLine()])
+  const [saving, setSaving] = useState(false)
+  const { toast } = useToast()
+
+  // Reset lines when dialog opens
+  useEffect(() => {
+    if (open) setLines([emptyLine()])
+  }, [open])
+
+  const updateLine = (index: number, patch: Partial<PurchaseLine>) =>
+    setLines((prev) => prev.map((l, i) => (i === index ? { ...l, ...patch } : l)))
+
+  const handleItemSelect = (index: number, itemId: string) => {
+    const item = items.find((i) => i.id === itemId)
+    if (!item) return
+    updateLine(index, {
+      itemId,
+      costPrice: Number(item.costPrice) || 0,
+      sellingPrice: Number(item.sellingPrice) || 0,
+    })
+  }
+
+  const addLine = () => setLines((prev) => [...prev, emptyLine()])
+  const removeLine = (index: number) => setLines((prev) => prev.filter((_, i) => i !== index))
+
+  const handleSave = async () => {
+    const validLines = lines.filter((l) => l.itemId && l.quantity > 0)
+    if (validLines.length === 0) {
+      toast({ title: 'Add at least one item with quantity', variant: 'destructive' })
+      return
+    }
+
+    setSaving(true)
+    try {
+      for (const line of validLines) {
+        const currentItem = items.find((i) => i.id === line.itemId)
+        if (!currentItem) continue
+
+        const newQty = (Number(currentItem.quantity) || 0) + line.quantity
+
+        await apiPut(`/api/items/${line.itemId}`, {
+          quantity: newQty,
+          costPrice: line.costPrice,
+          sellingPrice: line.sellingPrice,
+        })
+      }
+
+      toast({
+        title: `Purchase added — ${validLines.length} item(s) updated ✓`,
+        description: 'Stock quantities have been increased.',
+      })
+      refetch()
+      onOpenChange(false)
+    } catch (e: any) {
+      toast({ title: 'Failed', description: e.message, variant: 'destructive' })
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const totalCost = lines.reduce((s, l) => s + l.quantity * l.costPrice, 0)
+  const totalSell = lines.reduce((s, l) => s + l.quantity * l.sellingPrice, 0)
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <div className="w-8 h-8 rounded-lg bg-blue-100 flex items-center justify-center">
+              <Package className="w-4 h-4 text-blue-600" />
+            </div>
+            Add Purchase
+          </DialogTitle>
+          <p className="text-sm text-slate-500 mt-0.5">
+            Select items and enter received quantities. Stock will be added to existing quantity.
+          </p>
+        </DialogHeader>
+
+        <div className="space-y-2">
+          {/* Header row */}
+          <div className="grid grid-cols-12 gap-2 px-1 text-xs font-semibold text-slate-500 uppercase tracking-wide">
+            <div className="col-span-4">Item</div>
+            <div className="col-span-2 text-center">Qty Received</div>
+            <div className="col-span-2 text-center">Cost Price</div>
+            <div className="col-span-2 text-center">Sell Price</div>
+            <div className="col-span-2 text-center">Total Cost</div>
+          </div>
+
+          {/* Lines */}
+          {lines.map((line, idx) => {
+            const item = items.find((i) => i.id === line.itemId)
+            return (
+              <div
+                key={idx}
+                className="grid grid-cols-12 gap-2 p-2 rounded-lg border border-slate-200 bg-slate-50/60 items-center"
+              >
+                {/* Item Select */}
+                <div className="col-span-4">
+                  <Select value={line.itemId} onValueChange={(v) => handleItemSelect(idx, v)}>
+                    <SelectTrigger className="h-9 text-sm bg-white">
+                      <SelectValue placeholder="Select item..." />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {items.map((i) => (
+                        <SelectItem key={i.id} value={i.id}>
+                          <span className="truncate">
+                            {i.name}
+                            {i.sku ? <span className="text-slate-400 ml-1">· {i.sku}</span> : null}
+                          </span>
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  {item && (
+                    <p className="text-[10px] text-slate-400 mt-0.5 pl-1">
+                      Current stock: <span className="font-medium text-slate-600">{item.quantity} {item.unit || 'pcs'}</span>
+                    </p>
+                  )}
+                </div>
+
+                {/* Quantity */}
+                <div className="col-span-2">
+                  <Input
+                    type="number"
+                    min={1}
+                    value={line.quantity}
+                    onChange={(e) => updateLine(idx, { quantity: Math.max(1, Number(e.target.value)) })}
+                    className="h-9 text-center bg-white"
+                  />
+                </div>
+
+                {/* Cost Price */}
+                <div className="col-span-2">
+                  <Input
+                    type="number"
+                    min={0}
+                    step={0.01}
+                    value={line.costPrice}
+                    onChange={(e) => updateLine(idx, { costPrice: Number(e.target.value) })}
+                    className="h-9 text-center bg-white"
+                  />
+                </div>
+
+                {/* Selling Price */}
+                <div className="col-span-2">
+                  <Input
+                    type="number"
+                    min={0}
+                    step={0.01}
+                    value={line.sellingPrice}
+                    onChange={(e) => updateLine(idx, { sellingPrice: Number(e.target.value) })}
+                    className="h-9 text-center bg-white"
+                  />
+                </div>
+
+                {/* Total + Delete */}
+                <div className="col-span-2 flex items-center justify-between pl-1">
+                  <span className="text-sm font-semibold text-slate-800">
+                    {formatCurrency(line.quantity * line.costPrice)}
+                  </span>
+                  {lines.length > 1 && (
+                    <button
+                      onClick={() => removeLine(idx)}
+                      className="ml-1 p-1 rounded hover:bg-red-100 text-red-400 hover:text-red-600 transition-colors"
+                      title="Remove row"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </button>
+                  )}
+                </div>
+              </div>
+            )
+          })}
+
+          {/* Add row button */}
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={addLine}
+            className="w-full border-dashed border-slate-300 text-slate-600 hover:border-blue-400 hover:text-blue-600"
+          >
+            <Plus className="w-4 h-4 mr-1.5" /> Add Another Item
+          </Button>
+        </div>
+
+        {/* Summary */}
+        {lines.some((l) => l.itemId) && (
+          <div className="border-t border-slate-200 pt-3 grid grid-cols-3 gap-3 text-center">
+            <div className="rounded-lg bg-slate-100 p-2">
+              <p className="text-[10px] text-slate-500 uppercase font-medium">Total Items</p>
+              <p className="text-lg font-bold text-slate-800">{lines.filter((l) => l.itemId).length}</p>
+            </div>
+            <div className="rounded-lg bg-orange-50 border border-orange-100 p-2">
+              <p className="text-[10px] text-orange-600 uppercase font-medium">Purchase Cost</p>
+              <p className="text-lg font-bold text-orange-700">{formatCurrency(totalCost)}</p>
+            </div>
+            <div className="rounded-lg bg-green-50 border border-green-100 p-2">
+              <p className="text-[10px] text-green-600 uppercase font-medium">Potential Profit</p>
+              <p className="text-lg font-bold text-green-700">{formatCurrency(totalSell - totalCost)}</p>
+            </div>
+          </div>
+        )}
+
+        <DialogFooter>
+          <Button variant="outline" onClick={() => onOpenChange(false)} disabled={saving}>
+            Cancel
+          </Button>
+          <Button
+            onClick={handleSave}
+            disabled={saving || !lines.some((l) => l.itemId && l.quantity > 0)}
+            className="bg-blue-600 hover:bg-blue-700 text-white"
+          >
+            {saving ? (
+              <><span className="animate-spin mr-2">⏳</span> Saving...</>
+            ) : (
+              <><Package className="w-4 h-4 mr-1.5" /> Add to Stock</>
+            )}
+          </Button>
+        </DialogFooter>
       </DialogContent>
     </Dialog>
   )
