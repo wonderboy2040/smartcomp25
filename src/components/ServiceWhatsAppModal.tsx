@@ -16,7 +16,7 @@
 import { useFetch, apiPut, invalidate } from '@/lib/api'
 import { useToast } from '@/hooks/use-toast'
 import { buildWhatsAppMessage, buildWhatsAppLink, WHATSAPP_TEMPLATES } from '@/lib/whatsapp-templates'
-import { X, MessageCircle, CheckCircle2, CreditCard, Heart, Smartphone, Wrench, FileText } from 'lucide-react'
+import { X, MessageCircle, CheckCircle2, CreditCard, Heart, Smartphone, Wrench, FileText, Download } from 'lucide-react'
 import { useState, useEffect } from 'react'
 
 // Map WhatsApp template type → job status to sync.
@@ -70,6 +70,61 @@ export function ServiceWhatsAppModal({ jobId, onClose }: Props) {
 
   const sendTemplate = (type: typeof WHATSAPP_TEMPLATES[number]['type']) => {
     if (!mounted) return
+
+    // For invoice template, download PDF first, then open WhatsApp with message
+    if (type === 'invoice') {
+      // Step 1: Download the PDF
+      const pdfUrl = `/api/service-pdf/${job.id}`
+      const link = document.createElement('a')
+      link.href = pdfUrl
+      link.download = `Service-Invoice-${job.jobId}.pdf`
+      link.target = '_blank'
+      document.body.appendChild(link)
+      link.click()
+      document.body.removeChild(link)
+
+      toast({
+        title: '📄 PDF Downloaded!',
+        description: 'Now opening WhatsApp... Attach the PDF manually from your downloads.',
+        duration: 5000
+      })
+
+      // Step 2: Wait a bit, then open WhatsApp with the message
+      setTimeout(() => {
+        const msg = buildWhatsAppMessage(type, {
+          id: job.jobId,
+          customerName: job.customerName,
+          customerMobile: job.customerMobile,
+          deviceType: job.deviceType,
+          brandModel: job.brandModel,
+          problemDesc: job.problemDesc,
+          accessories: job.accessories,
+          date: job.date,
+          estimatedAmount: Number(job.estimatedAmount) || 0,
+          advanceAmount: Number(job.advanceAmount) || 0,
+          paidAmount: Number(job.paidAmount) || 0,
+          finalAmount: Number(job.finalAmount) || 0,
+          serviceCharge: Number(job.serviceCharge) || 0,
+          spareParts: (job.partsUsed || []).map((p: any) => ({
+            name: p.name,
+            qty: Number(p.qty) || 1,
+            total: (Number(p.sellPrice || p.price || 0)) * (Number(p.qty) || 1),
+          })),
+        }, {
+          businessName: bn,
+          businessMobile: shop?.phone || '',
+          businessAddress: shop?.address || '',
+          whatsappNumber: shop?.whatsappNumber || '',
+          upiId: shop?.upiId || '',
+        })
+        window.open(buildWhatsAppLink(job.customerMobile, msg), '_blank')
+      }, 1000)
+
+      onClose()
+      return
+    }
+
+    // For other templates, just send the message
     const msg = buildWhatsAppMessage(type, {
       id: job.jobId,
       customerName: job.customerName,
