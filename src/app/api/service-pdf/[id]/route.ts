@@ -115,6 +115,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
       paymentType: String(job.paymentMode || 'cash'),
       paymentStatus: amountDue <= 0 ? 'paid' : paid > 0 ? 'partial' : 'unpaid',
       docType: 'invoice',
+      gstMode: 'non-gst',
       templateId,
       productImages: await loadProductImages(),
       adBannerVariant: bannerVariant,

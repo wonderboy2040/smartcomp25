@@ -30,12 +30,13 @@ export interface WhatsAppShopInfo {
   upiId?: string
 }
 
-export type WhatsAppTemplateType = 'received' | 'progress' | 'completed' | 'payment' | 'delivered'
+export type WhatsAppTemplateType = 'received' | 'progress' | 'completed' | 'payment' | 'delivered' | 'invoice'
 
 export const WHATSAPP_TEMPLATES: Array<{ type: WhatsAppTemplateType; title: string; desc: string; icon: string; color: string }> = [
   { type: 'received',  title: 'Device Received',    desc: 'Confirm with cost estimate', icon: 'fa-inbox',                color: 'blue'   },
   { type: 'progress',  title: 'In Progress',         desc: 'Repair ongoing update',     icon: 'fa-wrench',               color: 'amber'  },
   { type: 'completed', title: 'Completed',           desc: 'Ready for pickup with bill',icon: 'fa-check',                color: 'green'  },
+  { type: 'invoice',   title: 'Share Invoice',       desc: 'Full bill with item details',icon: 'fa-file-invoice',         color: 'purple' },
   { type: 'payment',   title: 'Payment Reminder',    desc: 'Balance with UPI details',  icon: 'fa-indian-rupee-sign',    color: 'purple' },
   { type: 'delivered', title: 'Delivered',           desc: 'Thank you note & review',   icon: 'fa-handshake',            color: 'gray'   },
 ]
@@ -69,6 +70,9 @@ export function buildWhatsAppMessage(
 
     case 'completed':
       return `*${bn}*\n\n🎉 *REPAIR COMPLETED & READY FOR PICKUP!*\n\nDear *${job.customerName}*,\n\nGreat news! Your ${job.deviceType}${job.brandModel ? ' (' + job.brandModel + ')' : ''} repair is complete and thoroughly tested.\n\n📋 *Job No:* ${job.id}\n📅 *Date:* ${jobDate}\n\n🧾 *BILL BREAKDOWN:*\n${(job.spareParts || []).length > 0 ? (job.spareParts || []).map((p) => `• ${p.name} (x${p.qty}) = ₹${p.total}`).join('\n') + '\n' : ''}🔧 Service Charge: ₹${svc}\n━━━━━━\n*Grand Total: ₹${tot}*\n${paid > 0 ? `Paid So Far: -₹${paid}\n` : ''}*Balance Due: ${bal > 0 ? '₹' + bal : 'PAID IN FULL ✅'}*${shop.upiId && bal > 0 ? `\n\n📲 *Pay via UPI:* ${shop.upiId}` : ''}\n\n📍 *Pickup Address:* ${shop.businessAddress || 'Shop Counter'}\n📞 *Contact:* ${shop.businessMobile || ''}\n🕐 *Hours:* Mon-Sat (10 AM - 8 PM)\n\nThank you! We look forward to serving you! 🙏`
+
+    case 'invoice':
+      return `*${bn}*\n\n📄 *SERVICE INVOICE*\n\nDear *${job.customerName}*,\n\n📋 *Job Details:*\n• Job No: ${job.id}\n• Date: ${jobDate}\n• Device: ${job.deviceType}${job.brandModel ? ' - ' + job.brandModel : ''}\n• Problem: ${job.problemDesc}\n${job.accessories ? `• Accessories: ${job.accessories}\n` : ''}\n🧾 *INVOICE BREAKDOWN:*\n${(job.spareParts || []).length > 0 ? '\n*Parts Used:*\n' + (job.spareParts || []).map((p, i) => `${i + 1}. ${p.name}\n   Qty: ${p.qty} × ₹${(Number(p.sellPrice) || Number(p.price) || 0)} = ₹${p.total}`).join('\n') + '\n' : ''}${svc > 0 ? `\n*Service & Repair Charge:*\n₹${svc}\n` : ''}\n━━━━━━━━━━━━━━\n💰 *PAYMENT SUMMARY:*\n• Sub Total: ₹${tot}\n• Grand Total: ₹${tot}\n${paid > 0 ? `• Paid Amount: -₹${paid}\n` : ''}• *Balance Due: ${bal > 0 ? '₹' + bal : '₹0 (PAID) ✅'}*\n${shop.upiId && bal > 0 ? `\n📲 *Pay Online:*\nUPI ID: ${shop.upiId}\n` : ''}\n📞 *Contact:* ${shop.businessMobile || ''}\n📍 ${shop.businessAddress || ''}\n\nThank you for your business! 🙏`
 
     case 'payment':
       return `*${bn}*\n\n💳 *PAYMENT REMINDER*\n\nDear *${job.customerName}*,\n\nThis is a quick reminder regarding your service bill.\n\n📋 *Job No:* ${job.id}\n📱 *Device:* ${job.deviceType}${job.brandModel ? ' (' + job.brandModel + ')' : ''}\n\n💰 *Payment Summary:*\n• Total Bill: ₹${tot}\n• Amount Paid: ₹${paid}\n━━━━━━\n*Remaining Balance: ₹${bal}*${shop.upiId ? `\n\n📲 *UPI ID for instant payment:* ${shop.upiId}` : ''}\n\n📞 *Contact Us:* ${shop.businessMobile || ''}\nThank you! 🙏`
