@@ -39,7 +39,7 @@ export function QuotationsPanel() {
       if (search) {
         const s = search.toLowerCase()
         return (
-          q.number.toLowerCase().includes(s) ||
+          String(q?.number || '').toLowerCase().includes(s) ||
           String(q?.customer?.name || q?.customerName || '').toLowerCase().includes(s) ||
           String(q?.customer?.phone || q?.customerPhone || '').includes(s)
         )

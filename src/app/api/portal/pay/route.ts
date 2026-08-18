@@ -3,6 +3,21 @@ import { getRow, listRows, updateRow } from '@/lib/sheets-client'
 import { apiLimiter, getClientIp } from '@/lib/rate-limit'
 
 /**
+ * Normalize an Indian phone number to E.164 format (10 digits → 91XXXXXXXXXX)
+ * as required by Razorpay's `customer.contact` field. Without this, Razorpay
+ * rejects the request with 400 "The contact parameter does not match the
+ * format 919999999999" and the customer sees "Payment link creation failed".
+ */
+function toE164IndianPhone(raw: string): string {
+  let digits = String(raw || '').replace(/\D/g, '')
+  if (digits.length === 11 && digits.startsWith('0')) digits = digits.slice(1)
+  if (digits.length === 12 && digits.startsWith('91')) return digits
+  if (digits.length === 10) return '91' + digits
+  // Already 12+ digits starting with 91, or any unknown length — best-effort return.
+  return digits
+}
+
+/**
  * POST /api/portal/pay — Customer Self-Service payment
  * Body: { invoiceId: string, phone: string }
  *
@@ -73,7 +88,7 @@ export async function POST(req: NextRequest) {
         description: `Payment for Invoice ${invoice.number}`,
         customer: {
           name: String(invoice.customerName || 'Customer'),
-          contact: String(invoice.customerPhone || ''),
+          contact: toE164IndianPhone(String(invoice.customerPhone || '')),
         },
         notify: { sms: true, email: false },
         reminder_enable: true,

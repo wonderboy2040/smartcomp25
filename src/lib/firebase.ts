@@ -34,6 +34,16 @@ type App = import('firebase-admin/app').App
 type ServiceAccount = import('firebase-admin/app').ServiceAccount
 type Firestore = import('firebase-admin/firestore').Firestore
 
+// Pull in the runtime-config getters so the desktop SetupWizard's save format
+// (firebaseServiceAccountBase64) is read by both firebase.ts and runtime-config.ts.
+// Without this, the desktop setup loop never detects that Firebase was configured.
+import {
+  getFirebaseServiceAccountBase64,
+  getFirebaseProjectId,
+  getFirebaseClientEmail,
+  getFirebasePrivateKey,
+} from '@/lib/runtime-config'
+
 let _firebaseAdminApp: typeof import('firebase-admin/app') | null = null
 let _firebaseAdminFirestore: typeof import('firebase-admin/firestore') | null = null
 
@@ -66,27 +76,68 @@ let loadedAt = 0
 const TTL = 10 * 1000 // re-read env / config file every 10 s (desktop hot-reload)
 
 function readDesktopConfig(): RuntimeFirebaseConfig {
-  const path = process.env.SMARTCOMP_CONFIG_PATH
-  if (!path) return {}
-  try {
-    if (!existsSync(path)) return {}
-    const raw = readFileSync(path, 'utf-8')
-    const parsed = JSON.parse(raw) as any
+  // Desktop mode reads through runtime-config.ts getters so that BOTH
+  // schema variants (the SetupWizard's `firebaseServiceAccountBase64`
+  // + a raw service-account JSON file written by older Electron builds)
+  // are recognized. Env vars take priority — runtime-config already
+  // handles that internally.
+  const b64 = getFirebaseServiceAccountBase64()
+  if (b64) {
+    try {
+      const json = Buffer.from(b64, 'base64').toString('utf-8')
+      const parsed = JSON.parse(json) as ServiceAccount
+      return {
+        projectId: parsed.projectId,
+        clientEmail: parsed.clientEmail,
+        privateKey: parsed.privateKey,
+        serviceAccount: parsed,
+      }
+    } catch {
+      return {}
+    }
+  }
+
+  const projectId = getFirebaseProjectId()
+  const clientEmail = getFirebaseClientEmail()
+  const rawKey = getFirebasePrivateKey()
+  if (projectId && clientEmail && rawKey) {
+    // The desktop config file may have escaped newlines as literal "\n"
+    // (depending on how the SetupWizard wrote them). Unescape them.
+    const privateKey = rawKey.replace(/\\n/g, '\n')
     return {
-      projectId: parsed.projectId || parsed.project_id,
-      clientEmail: parsed.clientEmail || parsed.client_email,
-      privateKey: parsed.privateKey || parsed.private_key,
-      serviceAccount: parsed.serviceAccount || (parsed.project_id && parsed.client_email && parsed.private_key
-        ? {
+      projectId,
+      clientEmail,
+      privateKey,
+      serviceAccount: { projectId, clientEmail, privateKey },
+    }
+  }
+
+  // Final fallback: a raw service-account JSON file at SMARTCOMP_CONFIG_PATH
+  // (legacy Electron builds wrote the full SA JSON there).
+  const path = process.env.SMARTCOMP_CONFIG_PATH
+  if (path) {
+    try {
+      if (existsSync(path)) {
+        const raw = readFileSync(path, 'utf-8')
+        const parsed = JSON.parse(raw) as any
+        if (parsed.project_id && parsed.client_email && parsed.private_key) {
+          return {
             projectId: parsed.project_id,
             clientEmail: parsed.client_email,
             privateKey: parsed.private_key,
+            serviceAccount: {
+              projectId: parsed.project_id,
+              clientEmail: parsed.client_email,
+              privateKey: parsed.private_key,
+            },
           }
-        : undefined),
+        }
+      }
+    } catch {
+      return {}
     }
-  } catch {
-    return {}
   }
+  return {}
 }
 
 function readConfig(): RuntimeFirebaseConfig {

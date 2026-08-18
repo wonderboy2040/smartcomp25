@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { listRows } from '@/lib/sheets-client'
 import { safeJsonParse } from '@/lib/utils'
+import { safeTokenCompare } from '@/lib/share-tokens'
 
 /**
  * GET /api/track?job=SC20260708001&token=abc123
@@ -24,14 +25,11 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: 'Job not found' }, { status: 404 })
     }
 
-    // Verify track token (constant-time compare)
+    // Verify track token — safeTokenCompare guards against the empty-string
+    // bypass (if job.trackToken is "" and attacker sends token="", the old
+    // length-check + no-op loop accepted the request).
     const expectedToken = String(job.trackToken || '')
-    if (expectedToken.length !== token.length) {
-      return NextResponse.json({ error: 'Invalid tracking link' }, { status: 403 })
-    }
-    let diff = 0
-    for (let i = 0; i < token.length; i++) diff |= token.charCodeAt(i) ^ expectedToken.charCodeAt(i)
-    if (diff !== 0) {
+    if (!safeTokenCompare(token, expectedToken)) {
       return NextResponse.json({ error: 'Invalid tracking link' }, { status: 403 })
     }
 

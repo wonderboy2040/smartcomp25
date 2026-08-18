@@ -3,13 +3,27 @@ import { getRow, listRows, updateRow } from '@/lib/sheets-client'
 import { safeTokenCompare } from '@/lib/share-tokens'
 
 /**
+ * Normalize an Indian phone number to E.164 format (10 digits → 91XXXXXXXXXX)
+ * as required by Razorpay's `customer.contact` field. Without this, Razorpay
+ * rejects the request with 400 "The contact parameter does not match the
+ * format 919999999999" and the customer sees "Payment link creation failed".
+ */
+function toE164IndianPhone(raw: string): string {
+  let digits = String(raw || '').replace(/\D/g, '')
+  if (digits.length === 11 && digits.startsWith('0')) digits = digits.slice(1)
+  if (digits.length === 12 && digits.startsWith('91')) return digits
+  if (digits.length === 10) return '91' + digits
+  return digits
+}
+
+/**
  * POST /api/track/pay
  *
  * Public endpoint — creates a Razorpay payment link or UPI deep link
  * for a customer to pay their invoice amount due.
  *
  * Body: { invoiceId: string, token: string }
- * 
+ *
  * Validates the share token before creating payment link.
  * Reuses existing Razorpay/UPI logic.
  */
@@ -84,7 +98,7 @@ export async function POST(req: NextRequest) {
         description: `Payment for Invoice ${invoice.number}`,
         customer: {
           name: String(invoice.customerName || 'Customer'),
-          contact: String(invoice.customerPhone || ''),
+          contact: toE164IndianPhone(String(invoice.customerPhone || '')),
         },
         notify: { sms: true, email: false },
         reminder_enable: true,
