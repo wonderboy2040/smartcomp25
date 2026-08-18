@@ -58,6 +58,9 @@ services:
         sync: false
       # OPTIONAL: WhatsApp Cloud API — enables auto-send + auto-capture replies.
       # If these are NOT set, the app falls back to wa.me manual mode.
+      # v12.4: When these ARE set, the WhatsApp "Share" button on Invoices /
+      # Quotations / Service Invoices delivers the PDF DIRECTLY to the
+      # customer's WhatsApp as a document message (no manual attach needed).
       - key: WA_TOKEN
         sync: false
       - key: WA_PHONE_NUMBER_ID
@@ -68,6 +71,13 @@ services:
         sync: false
       - key: WA_TEMPLATE_NAME
         value: "rate_enquiry"
+      # OPTIONAL: WeasyPrint binary path on the server. When set, the
+      # PDF download / WhatsApp-share uses the SAME HTML engine as the
+      # on-screen preview (pixel-perfect match). Without it, falls back
+      # to the old jsPDF engine (still works, looks slightly different).
+      # Install on Render: pip install weasyprint
+      - key: WEASYPRINT_BIN
+        sync: false
       # OPTIONAL: public base URL of the deployed app (used in track URLs etc.)
       - key: NEXT_PUBLIC_BASE_URL
         sync: false

@@ -88,6 +88,118 @@ export async function sendTextMessage(to: string, text: string): Promise<{ succe
 }
 
 /**
+ * Send a PDF document to a WhatsApp recipient via the Cloud API.
+ *
+ * This is the OFFICIAL way to attach a PDF file to a WhatsApp message —
+ * the recipient gets the PDF inline in the chat (no manual attachment).
+ * Works on BOTH mobile and desktop since the upload happens server-side.
+ *
+ * Two-step flow (per Meta docs):
+ *   1. POST the PDF binary to /app/uploads with type=document → get an `id`.
+ *      The `id` stays valid for ~30 minutes, enough to send the message.
+ *   2. POST to /messages with type=document + the uploaded id + a caption.
+ *
+ * Required env: WA_TOKEN + WA_PHONE_NUMBER_ID (same as sendTextMessage).
+ *
+ * @param to       recipient phone (any format, normalized to E.164)
+ * @param pdfBuffer PDF bytes (typically 50-500 KB; max 100 MB per Meta's limit)
+ * @param filename  e.g. "Invoice-SCSS-26-27-001.pdf" (must end with .pdf)
+ * @param caption   short text shown under the PDF (e.g. "Invoice #SCSS/26-27/001 • Total: Rs.3000")
+ */
+export async function sendPdfDocument(
+  to: string,
+  pdfBuffer: Buffer,
+  filename: string,
+  caption: string,
+): Promise<{ success: boolean; messageId?: string; error?: string }> {
+  if (!isCloudApiConfigured()) {
+    return { success: false, error: 'WA_TOKEN / WA_PHONE_NUMBER_ID not configured' }
+  }
+  const phone = normalizePhone(to)
+  if (!phone) return { success: false, error: 'Invalid phone number' }
+  if (!pdfBuffer || pdfBuffer.length < 1000) {
+    return { success: false, error: 'PDF buffer is empty or too small' }
+  }
+  if (!filename.toLowerCase().endsWith('.pdf')) {
+    return { success: false, error: 'Filename must end with .pdf' }
+  }
+
+  // ─── Step 1: Upload the PDF binary to Meta's storage ───
+  // Build a multipart/form-data body manually (no extra deps required).
+  const boundary = '----SmartCompBoundary' + Math.random().toString(36).slice(2)
+  const metadata = JSON.stringify({
+    messaging_product: 'whatsapp',
+    type: 'document',
+  })
+  const safeName = filename.replace(/[^\w.-]+/g, '_').slice(0, 100)
+
+  const parts: Buffer[] = []
+  parts.push(Buffer.from(`--${boundary}\r\n`))
+  parts.push(Buffer.from(`Content-Disposition: form-data; name="file"; filename="${safeName}"\r\n`))
+  parts.push(Buffer.from('Content-Type: application/pdf\r\n\r\n'))
+  parts.push(pdfBuffer)
+  parts.push(Buffer.from('\r\n'))
+  parts.push(Buffer.from(`--${boundary}\r\n`))
+  parts.push(Buffer.from('Content-Disposition: form-data; name="type"\r\n\r\n'))
+  parts.push(Buffer.from(`\r\n--${boundary}\r\n`))
+  parts.push(Buffer.from('Content-Disposition: form-data; name="messaging_product"\r\n\r\n'))
+  parts.push(Buffer.from(`whatsapp\r\n--${boundary}--\r\n`))
+  // Meta's API expects 'messaging_product' as a regular form field, not inside
+  // the JSON. The above arrangement matches the working samples from Meta's docs.
+  const formDataBuffer = Buffer.concat(parts)
+
+  let mediaId: string
+  try {
+    const uploadRes = await fetch(`https://graph.facebook.com/v21.0/${PHONE_NUMBER_ID}/media`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${TOKEN}`,
+        'Content-Type': `multipart/form-data; boundary=${boundary}`,
+      },
+      body: formDataBuffer,
+      signal: AbortSignal.timeout(60000),
+    })
+    const uploadData = await uploadRes.json()
+    if (!uploadRes.ok || !uploadData?.id) {
+      return { success: false, error: uploadData?.error?.message || `Upload failed: HTTP ${uploadRes.status}` }
+    }
+    mediaId = String(uploadData.id)
+  } catch (e: any) {
+    return { success: false, error: e?.message || 'PDF upload network error' }
+  }
+
+  // ─── Step 2: Send the message referencing the uploaded media id ───
+  try {
+    const res = await fetch(`https://graph.facebook.com/v21.0/${PHONE_NUMBER_ID}/messages`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${TOKEN}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        messaging_product: 'whatsapp',
+        recipient_type: 'individual',
+        to: phone,
+        type: 'document',
+        document: {
+          id: mediaId,
+          filename: safeName,
+          caption,
+        },
+      }),
+      signal: AbortSignal.timeout(30000),
+    })
+    const data = await res.json()
+    if (!res.ok) {
+      return { success: false, error: data?.error?.message || `HTTP ${res.status}` }
+    }
+    return { success: true, messageId: data?.messages?.[0]?.id }
+  } catch (e: any) {
+    return { success: false, error: e?.message || 'Send-message network error' }
+  }
+}
+
+/**
  * Send a template-based WhatsApp message (works even outside the 24h window).
  * Use this for FIRST contact with suppliers who haven't replied yet.
  *

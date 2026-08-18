@@ -40,6 +40,62 @@ const STATUS_COLORS: Record<string, string> = {
   Delivered: 'bg-purple-50 text-purple-700 border-purple-200',
 }
 
+// ────────────────────────────────────────────────────────────────────────
+// v4.0 STATUS WORKFLOW — clear, linear, no confusion.
+//   1. Pending           → Job created; awaiting device drop-off.
+//   2. Device Received    → Device physically at the shop.
+//   3. In Progress        → Technician is diagnosing / repairing.
+//   4. Completed         → Repair done; awaiting customer payment + pickup.
+//   5. Delivered          → Device handed back to customer; job closed.
+// ────────────────────────────────────────────────────────────────────────
+const STATUS_STEPS = ['Pending', 'Device Received', 'In Progress', 'Completed', 'Delivered'] as const
+type JobStatus = (typeof STATUS_STEPS)[number]
+
+const STATUS_STEP_INDEX: Record<JobStatus, number> = {
+  'Pending': 0,
+  'Device Received': 1,
+  'In Progress': 2,
+  'Completed': 3,
+  'Delivered': 4,
+}
+
+const STATUS_STEP_ICON: Record<JobStatus, any> = {
+  'Pending': Clock,
+  'Device Received': Package,
+  'In Progress': RefreshCw,
+  'Completed': CheckCircle2,
+  'Delivered': Package,
+}
+
+const STATUS_NEXT_LABEL: Record<JobStatus, string> = {
+  'Pending': 'Mark Device Received',
+  'Device Received': 'Start Repair',
+  'In Progress': 'Complete Repair',
+  'Completed': 'Mark Delivered',
+  'Delivered': '',
+}
+
+const STATUS_NEXT_ACTION: Record<JobStatus, 'updateStatus' | 'complete' | 'deliver' | 'none'> = {
+  'Pending': 'updateStatus',
+  'Device Received': 'updateStatus',
+  'In Progress': 'complete',
+  'Completed': 'deliver',
+  'Delivered': 'none',
+}
+
+const STATUS_NEXT_TARGET: Record<JobStatus, JobStatus> = {
+  'Pending': 'Device Received',
+  'Device Received': 'In Progress',
+  'In Progress': 'Completed',
+  'Completed': 'Delivered',
+  'Delivered': 'Delivered',
+}
+
+function statusProgress(status: string): number {
+  const idx = STATUS_STEP_INDEX[status as JobStatus]
+  return idx === undefined ? 0 : Math.round(((idx + 1) / STATUS_STEPS.length) * 100)
+}
+
 const PRIORITY_BORDER: Record<string, string> = {
   High: 'border-l-4 border-l-red-500',
   Medium: 'border-l-4 border-l-amber-500',
@@ -137,9 +193,9 @@ export function JobsPanel() {
           <h1 className="text-xl sm:text-2xl font-bold text-slate-900 flex items-center gap-2">
             <Wrench className="w-5 h-5 sm:w-6 sm:h-6 text-blue-600 flex-shrink-0" />
             <span className="truncate">Service Jobs</span>
-            <span className="text-[10px] px-2 py-0.5 bg-blue-50 text-blue-700 border border-blue-200 rounded-full">v3.0.4 Upgraded</span>
+            <span className="text-[10px] px-2 py-0.5 bg-blue-50 text-blue-700 border border-blue-200 rounded-full">v4.0 Workflow</span>
           </h1>
-          <p className="text-xs sm:text-sm text-slate-500 mt-0.5">Manage repairs with stock-linked parts, due tracking, customer links & professional invoices</p>
+          <p className="text-xs sm:text-sm text-slate-500 mt-0.5">Linear repair workflow: Pending → Received → Progress → Completed → Delivered</p>
         </div>
         <Button onClick={() => { setEditing(null); setDialogOpen(true) }} className="bg-blue-600 hover:bg-blue-700 h-11">
           <Plus className="w-4 h-4 mr-1.5" /> <span className="hidden sm:inline">New Job</span><span className="sm:hidden">New</span>
@@ -291,7 +347,6 @@ function NewJobDialog({ open, onOpenChange, editing, onSaved }: { open: boolean,
 
 function JobDetailDialog({ job, onClose, onUpdated, onOpenInvoice, onOpenWhatsApp }: { job: any, onClose: () => void, onUpdated: () => void, onOpenInvoice: (id: string) => void, onOpenWhatsApp: (id: string) => void, onEditInfo: (j: any) => void }) {
   const { toast } = useToast()
-  const [status, setStatus] = useState(job?.status || 'Pending')
   const [partsUsed, setPartsUsed] = useState<any[]>(safeJsonParse<any[]>(job?.partsUsedJson || job?.partsUsed, []))
   const [finalAmount, setFinalAmount] = useState(Number(job?.finalAmount) || 0)
   const [serviceCharge, setServiceCharge] = useState(Number(job?.serviceCharge) || 0)
@@ -307,7 +362,6 @@ function JobDetailDialog({ job, onClose, onUpdated, onOpenInvoice, onOpenWhatsAp
   const [quickPayAmount, setQuickPayAmount] = useState('')
   const [quickPayMode, setQuickPayMode] = useState<'Cash' | 'UPI'>('Cash')
   const [saving, setSaving] = useState(false)
-  const [showComplete, setShowComplete] = useState(false)
   const [deductStock, setDeductStock] = useState(true)
 
   // Full catalogue, fetched once from the same URL every other panel uses so
@@ -351,18 +405,6 @@ function JobDetailDialog({ job, onClose, onUpdated, onOpenInvoice, onOpenWhatsAp
     } finally { setSaving(false) }
   }
 
-  const handleUpdateStatus = async () => {
-    setSaving(true)
-    try {
-      await apiPut(`/api/jobs/${job.id}`, { action: 'updateStatus', status })
-      toast({ title: 'Status updated ✓', description: `Job is now ${status}` })
-      invalidate('/api/jobs')
-      onUpdated()
-    } catch (e: any) {
-      toast({ title: 'Error', description: e.message, variant: 'destructive' })
-    } finally { setSaving(false) }
-  }
-
   const handleAddPart = () => {
     if (!newPart.name) {
       toast({ title: 'Enter part name', variant: 'destructive' })
@@ -395,32 +437,6 @@ function JobDetailDialog({ job, onClose, onUpdated, onOpenInvoice, onOpenWhatsAp
     setPartsUsed(partsUsed.filter((_, idx) => idx !== i))
   }
 
-  const handleComplete = async () => {
-    // AUTO-FIX (v3.0.5 Pro): Recalculate final amount from parts + service charge
-    // to ensure invoice always shows correct total matching saved details
-    const calculatedTotal = serviceCharge > 0 ? (serviceCharge + partsTotalSell) : (finalAmount > 0 ? finalAmount : partsTotalSell)
-    if (calculatedTotal <= 0) {
-      toast({ title: 'Final amount must be > 0', description: 'Set service charge or add parts first', variant: 'destructive' })
-      return
-    }
-    setSaving(true)
-    try {
-      await apiPut(`/api/jobs/${job.id}`, {
-        action: 'complete',
-        partsUsed,
-        finalAmount: calculatedTotal,
-        serviceCharge,
-        paymentMode,
-        deductStock,
-      })
-      toast({ title: 'Job completed! ✓', description: 'Profit calculated & stock updated' })
-      invalidate('/api/jobs')
-      onUpdated()
-    } catch (e: any) {
-      toast({ title: 'Error', description: e.message, variant: 'destructive' })
-    } finally { setSaving(false) }
-  }
-
   const handleQuickPayment = async () => {
     const amt = Number(quickPayAmount) || 0
     if (!amt || amt <= 0) {
@@ -439,12 +455,69 @@ function JobDetailDialog({ job, onClose, onUpdated, onOpenInvoice, onOpenWhatsAp
     } finally { setSaving(false) }
   }
 
-  const handleDeliver = async () => {
-    if (!confirm('Mark as Delivered?')) return
+  // v4.0 UNIFIED ADVANCE BUTTON — one click moves the job to its next logical
+  // state. Picks the correct API action based on where in the workflow the
+  // job currently sits:
+  //   Pending          → updateStatus → Device Received
+  //   Device Received   → updateStatus → In Progress
+  //   In Progress       → complete     → Completed  (needs parts + service charge)
+  //   Completed         → deliver      → Delivered  (needs balance cleared)
+  //   Delivered         → no-op (button hidden)
+  //
+  // This removes the previous confusion where the user had to use three
+  // separate buttons (Update Status, Complete Job, Delivered) that all
+  // changed the same status field, and the "Update Status" dropdown let
+  // them jump to ANY status out of order.
+  const handleAdvanceStatus = async () => {
+    const currentStatus = String(job?.status || 'Pending') as JobStatus
+    const nextStatus = STATUS_NEXT_TARGET[currentStatus]
+    const action = STATUS_NEXT_ACTION[currentStatus]
+    if (!nextStatus || action === 'none') return
+
+    // Pre-flight checks for the "complete" transition.
+    if (action === 'complete') {
+      const calculatedTotal = serviceCharge > 0 ? (serviceCharge + partsTotalSell) : (finalAmount > 0 ? finalAmount : partsTotalSell)
+      if (calculatedTotal <= 0) {
+        toast({
+          title: 'Cannot complete job yet',
+          description: 'Set a service charge or add parts with sell price first.',
+          variant: 'destructive',
+        })
+        return
+      }
+    }
+
+    // Pre-flight check for the "deliver" transition.
+    if (action === 'deliver') {
+      if (jobBalance(job) > 0) {
+        const ok = confirm(`Balance due is Rs.${jobBalance(job)}. Mark as Delivered anyway? (Customer will still owe this amount.)`)
+        if (!ok) return
+      } else {
+        if (!confirm('Mark as Delivered?')) return
+      }
+    }
+
     setSaving(true)
     try {
-      await apiPut(`/api/jobs/${job.id}`, { action: 'deliver' })
-      toast({ title: 'Job delivered ✓' })
+      if (action === 'complete') {
+        const calculatedTotal = serviceCharge > 0 ? (serviceCharge + partsTotalSell) : (finalAmount > 0 ? finalAmount : partsTotalSell)
+        await apiPut(`/api/jobs/${job.id}`, {
+          action: 'complete',
+          partsUsed,
+          finalAmount: calculatedTotal,
+          serviceCharge,
+          paymentMode,
+          deductStock,
+        })
+        toast({ title: 'Repair completed ✓', description: 'Status → Completed. Profit calculated & stock updated.' })
+      } else if (action === 'deliver') {
+        await apiPut(`/api/jobs/${job.id}`, { action: 'deliver' })
+        toast({ title: 'Job delivered ✓', description: 'Device handed to customer. Job is now closed.' })
+      } else {
+        // updateStatus — for Pending → Device Received and Device Received → In Progress
+        await apiPut(`/api/jobs/${job.id}`, { action: 'updateStatus', status: nextStatus })
+        toast({ title: 'Status updated ✓', description: `${job.jobId}: ${currentStatus} → ${nextStatus}` })
+      }
       invalidate('/api/jobs')
       onUpdated()
     } catch (e: any) {
@@ -457,7 +530,7 @@ function JobDetailDialog({ job, onClose, onUpdated, onOpenInvoice, onOpenWhatsAp
   return (
     <Dialog open={!!job} onOpenChange={(v) => !v && onClose()}>
       <DialogContent className="sm:max-w-3xl max-h-[90vh] overflow-y-auto bg-white">
-        <DialogHeader><DialogTitle className="flex items-center gap-2 flex-wrap text-slate-900"><Icon className="w-5 h-5 text-blue-600" /><span className="font-mono text-sm">{job.jobId}</span><Badge variant="outline" className={`${STATUS_COLORS[job.status] || ''} text-[10px] font-semibold`}>{job.status}</Badge>{job.priority && <Badge variant="outline" className={`${PRIORITY_BADGE[job.priority] || ''} text-[9px] font-semibold`}>{job.priority}</Badge>}<span className="text-[10px] px-2 py-0.5 bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-full">v3.0.4 Stock + Due Linked</span></DialogTitle></DialogHeader>
+        <DialogHeader><DialogTitle className="flex items-center gap-2 flex-wrap text-slate-900"><Icon className="w-5 h-5 text-blue-600" /><span className="font-mono text-sm">{job.jobId}</span><Badge variant="outline" className={`${STATUS_COLORS[job.status] || ''} text-[10px] font-semibold`}>{job.status}</Badge>{job.priority && <Badge variant="outline" className={`${PRIORITY_BADGE[job.priority] || ''} text-[9px] font-semibold`}>{job.priority}</Badge>}<span className="text-[10px] px-2 py-0.5 bg-blue-50 text-blue-700 border border-blue-200 rounded-full">v4.0 Workflow</span></DialogTitle></DialogHeader>
 
         <div className="space-y-4">
           <div className="grid grid-cols-2 gap-3 text-sm">
@@ -485,10 +558,97 @@ function JobDetailDialog({ job, onClose, onUpdated, onOpenInvoice, onOpenWhatsAp
             </div>
           )}
 
-          <div className="flex flex-wrap items-end gap-2">
-            <div className="flex-1 min-w-[150px]"><Label className="text-xs font-semibold text-slate-700">Update Status</Label><Select value={status} onValueChange={setStatus}><SelectTrigger className="h-10 bg-white mt-1"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="Pending">Pending</SelectItem><SelectItem value="Device Received">Device Received</SelectItem><SelectItem value="In Progress">In Progress</SelectItem><SelectItem value="Completed">Completed</SelectItem><SelectItem value="Delivered">Delivered</SelectItem></SelectContent></Select></div>
-            <Button onClick={handleUpdateStatus} disabled={saving || status === job.status} className="bg-blue-600 hover:bg-blue-700 text-white h-10">Update Status</Button>
-            {job.status === 'Completed' && <Button onClick={handleDeliver} disabled={saving} className="bg-purple-600 hover:bg-purple-700 text-white h-10"><Package className="w-4 h-4 mr-1" /> Delivered</Button>}
+          {/* v4.0 — STATUS WORKFLOW STEPPER.
+              One visual progress bar showing all 5 stages, with the current
+              stage highlighted. Below it: ONE primary "advance to next state"
+              button (or a "Job closed" badge if Delivered). The old UI had a
+              free-form dropdown that let users jump statuses out of order, plus
+              a separate "Delivered" button — both caused confusion. */}
+          <div className="border-2 border-slate-200 rounded-xl p-3 bg-gradient-to-br from-slate-50 to-white">
+            <div className="flex items-center justify-between mb-3">
+              <Label className="text-sm font-bold text-slate-900 flex items-center gap-2">
+                <ClipboardList className="w-4 h-4 text-blue-600" />
+                Repair Workflow
+              </Label>
+              <Badge variant="outline" className={`${STATUS_COLORS[job.status] || ''} text-[10px] font-semibold`}>
+                {job.status}
+              </Badge>
+            </div>
+
+            {/* Stepper — 5 nodes connected by a progress line */}
+            <div className="flex items-center justify-between mb-3 px-1">
+              {STATUS_STEPS.map((step, idx) => {
+                const StepIcon = STATUS_STEP_ICON[step]
+                const currentIdx = STATUS_STEP_INDEX[(job.status as JobStatus) || 'Pending'] ?? 0
+                const isDone = idx < currentIdx
+                const isActive = idx === currentIdx
+                const isFuture = idx > currentIdx
+                return (
+                  <div key={step} className="flex-1 flex flex-col items-center relative">
+                    {/* connecting line — except before the first step */}
+                    {idx > 0 && (
+                      <div
+                        className={`absolute top-3.5 right-1/2 h-0.5 w-full ${isDone ? 'bg-emerald-400' : 'bg-slate-200'}`}
+                        aria-hidden
+                      />
+                    )}
+                    <div
+                      className={`relative z-10 w-7 h-7 rounded-full flex items-center justify-center border-2 mb-1 ${
+                        isDone
+                          ? 'bg-emerald-500 border-emerald-500 text-white'
+                          : isActive
+                            ? 'bg-blue-500 border-blue-500 text-white animate-pulse'
+                            : 'bg-white border-slate-200 text-slate-300'
+                      }`}
+                    >
+                      {isDone ? <CheckCircle2 className="w-4 h-4" /> : <StepIcon className="w-3.5 h-3.5" />}
+                    </div>
+                    <p className={`text-[9px] sm:text-[10px] text-center leading-tight font-semibold ${
+                      isDone ? 'text-emerald-700' : isActive ? 'text-blue-700' : 'text-slate-400'
+                    }`}>
+                      {step === 'Device Received' ? 'Received' : step === 'In Progress' ? 'Progress' : step}
+                    </p>
+                  </div>
+                )
+              })}
+            </div>
+
+            {/* Primary action button — moves to next state with one click */}
+            {job.status !== 'Delivered' ? (
+              <Button
+                onClick={handleAdvanceStatus}
+                disabled={saving}
+                className="w-full h-11 font-bold text-sm"
+                style={{
+                  backgroundColor: job.status === 'In Progress' ? '#10b981' : job.status === 'Completed' ? '#7c3aed' : '#2563eb',
+                }}
+              >
+                {saving ? (
+                  <><RefreshCw className="w-4 h-4 mr-2 animate-spin" /> Processing...</>
+                ) : (
+                  <>
+                    {job.status === 'Pending' && <><Package className="w-4 h-4 mr-2" /> {STATUS_NEXT_LABEL[job.status as JobStatus]}</>}
+                    {job.status === 'Device Received' && <><RefreshCw className="w-4 h-4 mr-2" /> {STATUS_NEXT_LABEL[job.status as JobStatus]}</>}
+                    {job.status === 'In Progress' && <><CheckCircle2 className="w-4 h-4 mr-2" /> {STATUS_NEXT_LABEL[job.status as JobStatus]}</>}
+                    {job.status === 'Completed' && <><Package className="w-4 h-4 mr-2" /> {STATUS_NEXT_LABEL[job.status as JobStatus]}</>}
+                  </>
+                )}
+              </Button>
+            ) : (
+              <div className="w-full h-11 rounded-lg bg-purple-50 border border-purple-200 flex items-center justify-center gap-2 text-purple-700 font-bold text-sm">
+                <CheckCircle2 className="w-4 h-4" /> Job Closed — Delivered to customer
+              </div>
+            )}
+
+            {/* Helper text — what happens next */}
+            {job.status !== 'Delivered' && (
+              <p className="text-[10px] text-slate-500 mt-2 text-center">
+                {job.status === 'Pending' && 'Device not yet received from customer.'}
+                {job.status === 'Device Received' && 'Device at the shop — start the repair when ready.'}
+                {job.status === 'In Progress' && 'Marks repair as done. Set service charge + parts below first.'}
+                {job.status === 'Completed' && 'Repair complete — hand device to customer to close the job.'}
+              </p>
+            )}
           </div>
 
           {/* Parts Used - UPGRADED v3.0.3 with Stock */}
@@ -574,28 +734,37 @@ function JobDetailDialog({ job, onClose, onUpdated, onOpenInvoice, onOpenWhatsAp
             <p className="text-[10px] text-emerald-700 mt-2 font-medium">Paid: {formatCurrency(Number(job.paidAmount) || 0)} · Advance: {formatCurrency(Number(job.advanceAmount) || 0)} · Balance: {formatCurrency(jobBalance(job))}</p>
           </div>
 
+          {/* Service charge + final amount editor.
+              Shown for jobs that are NOT yet Completed/Delivered so the user
+              can prepare the final billing before clicking "Complete Repair".
+              When the job is already Completed/Delivered the same fields are
+              read-only (displayed in the totals card above). */}
           {job.status !== 'Completed' && job.status !== 'Delivered' && (
             <div className="border-2 border-blue-200 rounded-xl p-3 bg-blue-50">
-              <div className="flex items-center justify-between mb-2"><Label className="text-sm font-bold text-blue-900">Complete Job & Invoice</Label><Button size="sm" variant="ghost" onClick={() => setShowComplete(!showComplete)} className="text-blue-700 text-xs bg-white border">{showComplete ? 'Hide' : 'Show Details'}</Button></div>
-              {showComplete && (
-                <div className="space-y-3">
-                  <div className="grid grid-cols-2 gap-2">
-                    <div><Label className="text-[11px] font-semibold text-blue-800">Service Charge (Rs.)</Label><Input type="number" value={serviceCharge} onChange={(e) => setServiceCharge(Number(e.target.value))} className="h-10 text-sm bg-white mt-1" /></div>
-                    <div><Label className="text-[11px] font-semibold text-blue-800">Final Amount = Service + Parts (Rs.)</Label><Input type="number" value={finalAmount} onChange={(e) => setFinalAmount(Number(e.target.value))} className="h-10 text-sm bg-white mt-1 font-bold" /></div>
-                  </div>
-                  <div className="bg-white p-2.5 rounded-xl border text-xs space-y-1">
-                    <div className="flex justify-between"><span>Parts Sell Total:</span><span className="font-bold">Rs.{partsTotalSell}</span></div>
-                    <div className="flex justify-between"><span>Service Charge:</span><span className="font-bold">Rs.{serviceCharge}</span></div>
-                    <div className="flex justify-between border-t pt-1 mt-1"><span className="font-bold">Total (suggested):</span><span className="font-bold text-blue-700">Rs.{partsTotalSell + serviceCharge}</span></div>
-                    <Button variant="outline" size="sm" className="w-full mt-2 h-8 text-xs bg-white" onClick={() => setFinalAmount(partsTotalSell + serviceCharge)}>Use Suggested Total</Button>
-                  </div>
-                  <div className="grid grid-cols-2 gap-2">
-                    <div><Label className="text-[11px] font-semibold text-blue-800">Payment Mode</Label><Select value={paymentMode} onValueChange={setPaymentMode}><SelectTrigger className="h-10 text-sm bg-white mt-1"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="Cash">Cash</SelectItem><SelectItem value="UPI">UPI</SelectItem></SelectContent></Select></div>
-                  </div>
-                  <div className="bg-amber-50 border border-amber-200 rounded-lg p-2.5 text-[11px] text-amber-800"><AlertTriangle className="w-3.5 h-3.5 inline mr-1" />On complete: {deductStock ? 'Stock will be deducted for linked items' : 'Stock will NOT be deducted'}</div>
-                  <Button onClick={handleComplete} disabled={saving || finalAmount <= 0} className="w-full bg-emerald-600 hover:bg-emerald-700 text-white h-11 font-bold">{saving ? <><RefreshCw className="w-4 h-4 mr-2 animate-spin" /> Completing...</> : <><CheckCircle2 className="w-5 h-5 mr-2" /> Complete Job & Generate Invoice</>}</Button>
+              <Label className="text-sm font-bold text-blue-900 mb-2 block flex items-center gap-2">
+                <IndianRupee className="w-4 h-4" />
+                Service Charge & Final Amount
+              </Label>
+              <div className="grid grid-cols-2 gap-2">
+                <div><Label className="text-[11px] font-semibold text-blue-800">Service Charge (Rs.)</Label><Input type="number" value={serviceCharge} onChange={(e) => setServiceCharge(Number(e.target.value))} className="h-10 text-sm bg-white mt-1" /></div>
+                <div><Label className="text-[11px] font-semibold text-blue-800">Final Amount = Service + Parts (Rs.)</Label><Input type="number" value={finalAmount} onChange={(e) => setFinalAmount(Number(e.target.value))} className="h-10 text-sm bg-white mt-1 font-bold" /></div>
+              </div>
+              <div className="bg-white p-2.5 rounded-xl border text-xs space-y-1 mt-2">
+                <div className="flex justify-between"><span>Parts Sell Total:</span><span className="font-bold">Rs.{partsTotalSell}</span></div>
+                <div className="flex justify-between"><span>Service Charge:</span><span className="font-bold">Rs.{serviceCharge}</span></div>
+                <div className="flex justify-between border-t pt-1 mt-1"><span className="font-bold">Suggested Final:</span><span className="font-bold text-blue-700">Rs.{partsTotalSell + serviceCharge}</span></div>
+                <Button variant="outline" size="sm" className="w-full mt-2 h-8 text-xs bg-white" onClick={() => setFinalAmount(partsTotalSell + serviceCharge)}>Use Suggested Total</Button>
+              </div>
+              <div className="grid grid-cols-2 gap-2 mt-2">
+                <div><Label className="text-[11px] font-semibold text-blue-800">Payment Mode</Label><Select value={paymentMode} onValueChange={setPaymentMode}><SelectTrigger className="h-10 text-sm bg-white mt-1"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="Cash">Cash</SelectItem><SelectItem value="UPI">UPI</SelectItem><SelectItem value="Card">Card</SelectItem><SelectItem value="Bank Transfer">Bank Transfer</SelectItem></SelectContent></Select></div>
+                <div className="flex items-end">
+                  <div className="bg-amber-50 border border-amber-200 rounded-lg p-2.5 text-[11px] text-amber-800 w-full flex items-center gap-1.5 h-10"><AlertTriangle className="w-3.5 h-3.5 flex-shrink-0" /><span>{deductStock ? 'Stock auto-deducted on complete' : 'Stock NOT deducted'}</span></div>
                 </div>
-              )}
+              </div>
+              <p className="text-[10px] text-blue-700 mt-2 font-medium flex items-center gap-1">
+                <AlertTriangle className="w-3 h-3" />
+                Tip: Set these values BEFORE clicking "Complete Repair" above. The advance button will use them automatically.
+              </p>
             </div>
           )}
 

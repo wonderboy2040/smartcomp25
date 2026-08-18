@@ -661,109 +661,181 @@ export async function shareWhatsAppPdf({
   toast?: any
   gstMode?: 'gst' | 'non-gst'
 }) {
-  try {
-    const filename = `${docType.toUpperCase()}-${docNumber || docId}.pdf`
-    const pdfUrl = docType === 'service'
-      ? `/api/service-pdf/${docId}`
-      : `/api/pdf/${docId}?type=${docType}&gstMode=${gstMode}`
+  // ─────────────────────────────────────────────────────────────────────────
+  // v12.4 — TWO-WAY WhatsApp PDF share:
+  //
+  // 1. Server-side via Cloud API (PREFERRED):
+  //    POST /api/whatsapp/send-pdf generates the PDF on the server (using
+  //    the SAME HTML engine as the on-screen preview, via WeasyPrint) and
+  //    sends it DIRECTLY to the customer's WhatsApp as a document message.
+  //    The customer receives the PDF automatically — no manual attach needed.
+  //    Works on BOTH mobile and desktop browsers.
+  //
+  // 2. Client-side via Web Share API / wa.me link (FALLBACK):
+  //    If the Cloud API is not configured (no WA_TOKEN env), falls back to:
+  //    - Mobile: navigator.share({ files: [pdfFile] }) → WhatsApp share sheet
+  //      (PDF is auto-attached on Android Chrome / iOS Safari)
+  //    - Desktop: download the PDF + open wa.me with text message → user
+  //      manually attaches the PDF in WhatsApp Web
+  //
+  // The PDF used in BOTH flows comes from the new POST /api/doc-html/[id]
+  // endpoint (HTML engine, matches the preview pixel-perfect).
+  // ─────────────────────────────────────────────────────────────────────────
 
-    if (toast) toast({ title: 'Preparing PDF for WhatsApp...', duration: 2000 })
+  const filename = `${docType.toUpperCase()}-${docNumber || docId}.pdf`
+  const titleLabel = docType === 'invoice' ? 'Invoice' : docType === 'quotation' ? 'Quotation' : 'Service Invoice'
 
-    const response = await fetch(pdfUrl)
-    if (!response.ok) throw new Error('Failed to generate PDF')
-    const blob = await response.blob()
-    const pdfFile = new File([blob], filename, { type: 'application/pdf' })
+  // Build the message text — used as caption (server flow) or as the wa.me
+  // body (client fallback).
+  const isPaid = (amountDue ?? 0) <= 0
+  const due = Number(amountDue) || 0
+  const total = Number(grandTotal) || 0
+  const custName = (customerName || 'Customer').trim()
+  const messageText = buildProfessionalShareMessage({
+    docType,
+    docNumber,
+    customerName: custName,
+    grandTotal: total,
+    amountDue: due,
+    isPaid,
+    notes,
+  })
 
-    const cleanPhone = String(customerPhone || '').replace(/[^\d]/g, '')
-    const targetPhone = cleanPhone.length === 10 ? `91${cleanPhone}` : cleanPhone.length > 10 ? cleanPhone : ''
-
-    // ─── Professional, Simple, Lite Message Template ───
-    // v12.3: Clean, minimal, business-professional. No emoji clutter.
-    // Only essential info that complements the PDF (not duplicates everything).
-    const isPaid = (amountDue ?? 0) <= 0
-    const due = Number(amountDue) || 0
-    const total = Number(grandTotal) || 0
-    const custName = (customerName || 'Customer').trim()
-
-    const messageText = buildProfessionalShareMessage({
-      docType,
-      docNumber,
-      customerName: custName,
-      grandTotal: total,
-      amountDue: due,
-      isPaid,
-      notes,
-    })
-
-    const titleLabel = docType === 'invoice' ? 'Invoice' : docType === 'quotation' ? 'Quotation' : 'Service Invoice'
-
-    // 1. Try Native Web Share API (passes the actual PDF file attachment on
-    //    mobile Chrome/Safari). This is the ONLY path where the PDF is
-    //    auto-attached to WhatsApp — desktop browsers don't support file
-    //    sharing via Web Share API.
-    if (typeof navigator !== 'undefined' && navigator.canShare && navigator.canShare({ files: [pdfFile] })) {
-      try {
-        await navigator.share({
-          files: [pdfFile],
-          title: `${titleLabel} ${docNumber}`,
-          text: messageText,
-        })
-        if (toast) toast({ title: 'Shared to WhatsApp ✓', duration: 3000 })
-        return
-      } catch (shareErr: any) {
-        // AbortError = user cancelled the share sheet — silently return
-        if (shareErr?.name === 'AbortError') return
-        // Any other error — fall through to the desktop fallback below.
-        console.warn('Native share failed, falling back to download:', shareErr?.message)
-      }
-    }
-
-    // 2. Desktop / fallback: auto-download the PDF + copy message to clipboard
-    //    + open WhatsApp Web with the text message pre-filled. User then
-    //    attaches the downloaded PDF in the WhatsApp Web chat window.
-    const downloadUrl = URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    a.href = downloadUrl
-    a.download = filename
-    document.body.appendChild(a)
-    a.click()
-    document.body.removeChild(a)
-
-    setTimeout(() => {
-      URL.revokeObjectURL(downloadUrl)
-    }, 3000)
-
-    // Try to copy the message to clipboard so the user can paste it directly
-    // (some browsers block clipboard after window.open, so this is best-effort)
-    let clipboardCopied = false
+  // ─── PREFERRED FLOW: server-side send via Cloud API ───
+  if (customerPhone) {
+    if (toast) toast({ title: 'Sending PDF via WhatsApp...', duration: 2000 })
     try {
-      if (navigator.clipboard && navigator.clipboard.writeText) {
-        await navigator.clipboard.writeText(messageText)
-        clipboardCopied = true
-      }
-    } catch {
-      // Clipboard API can fail if not focused or in non-secure context
-    }
-
-    const waUrl = targetPhone
-      ? `https://wa.me/${targetPhone}?text=${encodeURIComponent(messageText)}`
-      : `https://wa.me/?text=${encodeURIComponent(messageText)}`
-
-    window.open(waUrl, '_blank')
-
-    if (toast) {
-      toast({
-        title: 'PDF Downloaded & WhatsApp Opened ✓',
-        description: clipboardCopied
-          ? `Message copied to clipboard. Attach ${filename} in WhatsApp.`
-          : `Please attach ${filename} in the WhatsApp chat window.`,
-        duration: 7000,
+      const resp = await fetch('/api/whatsapp/send-pdf', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          docId,
+          docType,
+          customerPhone,
+          caption: messageText,
+        }),
       })
+      const data = await resp.json().catch(() => ({}))
+      if (resp.ok && data.success) {
+        if (toast) {
+          toast({
+            title: `${titleLabel} sent via WhatsApp ✓`,
+            description: `PDF delivered to ${customerPhone} directly.`,
+            duration: 4500,
+          })
+        }
+        return
+      }
+      // Soft-error: Cloud API not configured. Fall through to the client flow.
+      if (data?.error === 'cloud-api-not-configured') {
+        // Continue to fallback below.
+      } else if (data?.error) {
+        // Real error from Cloud API — log it but still try the client flow.
+        console.warn('[shareWhatsAppPdf] Cloud API send failed:', data.error)
+        if (toast) {
+          toast({
+            title: 'Direct send failed, trying manual flow...',
+            description: String(data.error).slice(0, 120),
+            duration: 3000,
+          })
+        }
+      }
+    } catch (cloudErr: any) {
+      console.warn('[shareWhatsAppPdf] Cloud API network error:', cloudErr?.message)
     }
-  } catch (e: any) {
-    if (e?.name !== 'AbortError') {
-      if (toast) toast({ title: 'Share failed', description: e.message || 'Error sharing PDF', variant: 'destructive', duration: 5000 })
+  }
+
+  // ─── FALLBACK FLOW: client-side download + open WhatsApp ───
+  if (toast) toast({ title: 'Preparing PDF for manual share...', duration: 2000 })
+
+  // Try the new POST /api/doc-html endpoint first (returns actual PDF bytes).
+  let blob: Blob | null = null
+  try {
+    const pdfUrl = `/api/doc-html/${encodeURIComponent(docId)}?type=${docType}&gstMode=${gstMode}&banner=flyer&template=tally-classic`
+    const response = await fetch(pdfUrl, { method: 'POST' })
+    if (response.ok) {
+      const contentType = response.headers.get('Content-Type') || ''
+      if (!contentType.includes('text/html')) {
+        blob = await response.blob()
+      }
     }
+  } catch (postErr: any) {
+    console.warn('[shareWhatsAppPdf] POST /api/doc-html failed:', postErr?.message)
+  }
+
+  // Fall back to the OLD jsPDF endpoint if the new POST didn't produce a PDF.
+  if (!blob) {
+    try {
+      const fallbackUrl = docType === 'service'
+        ? `/api/service-pdf/${docId}`
+        : `/api/pdf/${docId}?type=${docType}&gstMode=${gstMode}`
+      const response = await fetch(fallbackUrl)
+      if (response.ok) blob = await response.blob()
+    } catch (fbErr: any) {
+      console.warn('[shareWhatsAppPdf] Fallback GET /api/pdf failed:', fbErr?.message)
+    }
+  }
+
+  if (!blob) {
+    if (toast) toast({ title: 'PDF generation failed', description: 'Please try again', variant: 'destructive', duration: 5000 })
+    return
+  }
+
+  const pdfFile = new File([blob], filename, { type: 'application/pdf' })
+
+  const cleanPhone = String(customerPhone || '').replace(/[^\d]/g, '')
+  const targetPhone = cleanPhone.length === 10 ? `91${cleanPhone}` : cleanPhone.length > 10 ? cleanPhone : ''
+
+  // Mobile: try Native Web Share API (passes the actual PDF file attachment).
+  if (typeof navigator !== 'undefined' && navigator.canShare && navigator.canShare({ files: [pdfFile] })) {
+    try {
+      await navigator.share({
+        files: [pdfFile],
+        title: `${titleLabel} ${docNumber}`,
+        text: messageText,
+      })
+      if (toast) toast({ title: 'Shared to WhatsApp ✓', duration: 3000 })
+      return
+    } catch (shareErr: any) {
+      if (shareErr?.name === 'AbortError') return
+      console.warn('Native share failed, falling back to download:', shareErr?.message)
+    }
+  }
+
+  // Desktop fallback: auto-download PDF + copy message + open wa.me.
+  const downloadUrl = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = downloadUrl
+  a.download = filename
+  document.body.appendChild(a)
+  a.click()
+  document.body.removeChild(a)
+  setTimeout(() => URL.revokeObjectURL(downloadUrl), 3000)
+
+  let clipboardCopied = false
+  try {
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      await navigator.clipboard.writeText(messageText)
+      clipboardCopied = true
+    }
+  } catch {
+    // Clipboard API can fail if not focused or in non-secure context
+  }
+
+  const waUrl = targetPhone
+    ? `https://wa.me/${targetPhone}?text=${encodeURIComponent(messageText)}`
+    : `https://wa.me/?text=${encodeURIComponent(messageText)}`
+
+  window.open(waUrl, '_blank')
+
+  if (toast) {
+    toast({
+      title: 'PDF Downloaded & WhatsApp Opened ✓',
+      description: clipboardCopied
+        ? `Message copied to clipboard. Attach ${filename} in WhatsApp.`
+        : `Please attach ${filename} in the WhatsApp chat window.`,
+      duration: 7000,
+    })
   }
 }
 

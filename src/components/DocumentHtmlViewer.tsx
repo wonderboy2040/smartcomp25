@@ -106,37 +106,32 @@ export function DocumentHtmlViewer({ docId, docType = 'invoice', title, onClose,
 
   // Save as PDF — uses the SAME HTML the iframe is already rendering, so the
   // downloaded PDF is pixel-perfect identical to the on-screen preview. We
-  // trigger the browser's native print dialog and the user picks "Save as PDF"
-  // as the destination. This is the same UX Google Docs / Stripe / Zoho use.
-  //
-  // Why not server-side jsPDF? The old /api/pdf/[id] route called a separate
-  // jsPDF rendering engine (src/lib/pdf.ts) that draws the document with
-  // manual doc.rect()/doc.text() calls. That engine has its own template
-  // palette, its own layout math, and its own ad-banner rendering — none of
-  // which match the HTML/CSS engine (src/lib/doc-html.ts) used for preview.
-  // The two outputs could never be identical. Browser print-to-PDF uses the
-  // exact same Chromium engine that rendered the preview, so the PDF is a
-  // byte-for-byte visual match.
+  // open the iframe's HTML in a brand-new browser tab and trigger print there.
+  // This is more reliable than calling iframe.contentWindow.print() directly
+  // — the cross-origin / sandbox restrictions on the embedded iframe can
+  // silently swallow the print call (the dialog never opens).
   const handleSavePdf = useCallback(() => {
-    try {
-      const iframe = iframeRef.current
-      if (iframe?.contentWindow) {
-        iframe.contentWindow.focus()
-        // Slight delay so focus settles before the print dialog opens
-        setTimeout(() => {
-          try {
-            iframe.contentWindow?.print()
-          } catch {
-            window.open(iframeUrl, '_blank')
-          }
-        }, 50)
-      } else {
-        window.open(iframeUrl, '_blank')
+    if (!docId) return
+    // Open the same HTML the preview is rendering, with ?autoprint=1 so the
+    // print dialog fires automatically once the page finishes loading. The
+    // user picks "Save as PDF" as the destination → the downloaded PDF is
+    // byte-for-byte identical to what they see in the preview.
+    const url = `${iframeUrl}${iframeUrl.includes('?') ? '&' : '?'}autoprint=1`
+    const win = window.open(url, '_blank', 'noopener,noreferrer')
+    if (!win) {
+      // Popup blocker fired — fall back to triggering print inside the
+      // embedded iframe (works in most browsers, fails silently in others).
+      try {
+        const iframe = iframeRef.current
+        iframe?.contentWindow?.focus()
+        iframe?.contentWindow?.print()
+      } catch {
+        // Last resort: just navigate to the URL so the user can manually
+        // print/save from the new tab.
+        window.location.href = url
       }
-    } catch {
-      window.open(iframeUrl, '_blank')
     }
-  }, [iframeUrl])
+  }, [docId, iframeUrl])
 
   const docTypeLabel = docType === 'quotation' ? 'Quotation' : docType === 'service' ? 'Service Invoice' : 'Invoice'
 
@@ -204,16 +199,18 @@ export function DocumentHtmlViewer({ docId, docType = 'invoice', title, onClose,
             <span className="hidden sm:inline">Print A4</span>
           </button>
 
-          {/* Download PDF — uses browser's native print-to-PDF so output
-              matches the on-screen preview pixel-perfect. */}
+          {/* Download PDF — opens the same HTML in a new tab with autoprint=1
+              so the browser's print dialog opens automatically. The user picks
+              "Save as PDF" as the destination → output matches the on-screen
+              preview pixel-perfect (same HTML, same Chromium engine). */}
           <button
             onClick={handleSavePdf}
             disabled={!iframeLoaded}
-            title="Click to open the print dialog — choose 'Save as PDF' as the destination to download a PDF that matches this preview exactly."
+            title="Opens a new tab with this document and triggers the print dialog. Choose 'Save as PDF' as the destination to download a PDF that matches this preview exactly."
             className="flex items-center gap-1.5 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 disabled:cursor-not-allowed text-white text-xs font-bold px-3 py-1.5 rounded shadow transition cursor-pointer"
           >
             <Download className="w-3.5 h-3.5" />
-            <span className="hidden sm:inline">Save PDF</span>
+            <span className="hidden sm:inline">Download PDF</span>
           </button>
 
           {/* Open in New Tab */}
@@ -283,7 +280,9 @@ export function DocumentHtmlViewer({ docId, docType = 'invoice', title, onClose,
           </div>
         )}
 
-        {/* Iframe — THE SINGLE SOURCE OF TRUTH for document rendering */}
+        {/* Iframe — THE SINGLE SOURCE OF TRUTH for document rendering.
+            allow-popups-to-escape-sandbox lets window.print() escape the
+            sandbox so the browser's print-to-PDF dialog can actually open. */}
         <iframe
           ref={iframeRef}
           src={iframeUrl}
@@ -292,7 +291,7 @@ export function DocumentHtmlViewer({ docId, docType = 'invoice', title, onClose,
           className={`w-full h-full border-0 transition-opacity duration-200 ${iframeLoaded && !iframeError ? 'opacity-100' : 'opacity-0'}`}
           style={{ background: '#e2e8f0' }}
           title={`${docTypeLabel} Preview`}
-          sandbox="allow-same-origin allow-scripts allow-popups allow-modals"
+          sandbox="allow-same-origin allow-scripts allow-popups allow-modals allow-popups-to-escape-sandbox"
         />
       </div>
     </div>

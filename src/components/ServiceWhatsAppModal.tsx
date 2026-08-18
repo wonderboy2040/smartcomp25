@@ -68,20 +68,39 @@ export function ServiceWhatsAppModal({ jobId, onClose }: Props) {
 
   const bn = shop?.name || 'Smart Computers Sales & Service'
 
-  const sendTemplate = (type: typeof WHATSAPP_TEMPLATES[number]['type']) => {
+  const sendTemplate = async (type: typeof WHATSAPP_TEMPLATES[number]['type']) => {
     if (!mounted) return
 
-    // For invoice template, download PDF first, then open WhatsApp with message
+    // For invoice template, download PDF first, then open WhatsApp with message.
+    // v12.4: Use the new POST /api/doc-html/[id] endpoint — same HTML engine
+    // as the on-screen preview, so the PDF matches what the user sees.
     if (type === 'invoice') {
-      // Step 1: Download the PDF
-      const pdfUrl = `/api/service-pdf/${job.id}`
-      const link = document.createElement('a')
-      link.href = pdfUrl
-      link.download = `Service-Invoice-${job.jobId}.pdf`
-      link.target = '_blank'
-      document.body.appendChild(link)
-      link.click()
-      document.body.removeChild(link)
+      // Step 1: Download the PDF (uses fetch so we can fall back gracefully).
+      try {
+        const pdfUrl = `/api/doc-html/${job.id}?type=service&banner=flyer&template=tally-classic`
+        const resp = await fetch(pdfUrl, { method: 'POST' })
+        let blob: Blob
+        const contentType = resp.headers.get('Content-Type') || ''
+        if (resp.ok && !contentType.includes('text/html')) {
+          blob = await resp.blob()
+        } else {
+          // Fallback: old jsPDF endpoint (returns a different-looking PDF
+          // but still a valid PDF file the user can attach).
+          const fallbackResp = await fetch(`/api/service-pdf/${job.id}`)
+          if (!fallbackResp.ok) throw new Error('Failed to generate PDF')
+          blob = await fallbackResp.blob()
+        }
+        const downloadUrl = URL.createObjectURL(blob)
+        const link = document.createElement('a')
+        link.href = downloadUrl
+        link.download = `Service-Invoice-${job.jobId}.pdf`
+        document.body.appendChild(link)
+        link.click()
+        document.body.removeChild(link)
+        setTimeout(() => URL.revokeObjectURL(downloadUrl), 3000)
+      } catch (e: any) {
+        console.warn('[ServiceWhatsAppModal] PDF download failed:', e?.message)
+      }
 
       toast({
         title: '📄 PDF Downloaded!',
