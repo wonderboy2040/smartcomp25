@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useMemo, useCallback } from 'react'
-import { useFetch, apiPost, apiDelete } from '@/lib/api'
+import { useFetch, apiPost, apiDelete, invalidate } from '@/lib/api'
 import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -138,6 +138,14 @@ export function QuotationsPanel() {
       })
       setConvertTarget(null)
       refetch()
+      // CRITICAL: Invalidate the Invoices + Payments caches so the newly
+      // converted invoice shows up immediately when the user switches to the
+      // Invoices tab. Without this, the Invoices panel keeps serving the stale
+      // list from its 180s cache and the new invoice appears "missing" until
+      // a manual refresh or the cache expires.
+      invalidate('/api/invoices')
+      invalidate('/api/payments')
+      invalidate('/api/dashboard')
     } catch (e: any) {
       toast({
         title: 'Conversion failed',

@@ -104,10 +104,39 @@ export function DocumentHtmlViewer({ docId, docType = 'invoice', title, onClose,
     }
   }, [iframeUrl])
 
-  // PDF download URL
-  const pdfDownloadUrl = docId
-    ? `/api/pdf/${encodeURIComponent(docId)}?type=${docType}&template=${templateId}&banner=${bannerVariant}&gstMode=${gstMode}`
-    : ''
+  // Save as PDF — uses the SAME HTML the iframe is already rendering, so the
+  // downloaded PDF is pixel-perfect identical to the on-screen preview. We
+  // trigger the browser's native print dialog and the user picks "Save as PDF"
+  // as the destination. This is the same UX Google Docs / Stripe / Zoho use.
+  //
+  // Why not server-side jsPDF? The old /api/pdf/[id] route called a separate
+  // jsPDF rendering engine (src/lib/pdf.ts) that draws the document with
+  // manual doc.rect()/doc.text() calls. That engine has its own template
+  // palette, its own layout math, and its own ad-banner rendering — none of
+  // which match the HTML/CSS engine (src/lib/doc-html.ts) used for preview.
+  // The two outputs could never be identical. Browser print-to-PDF uses the
+  // exact same Chromium engine that rendered the preview, so the PDF is a
+  // byte-for-byte visual match.
+  const handleSavePdf = useCallback(() => {
+    try {
+      const iframe = iframeRef.current
+      if (iframe?.contentWindow) {
+        iframe.contentWindow.focus()
+        // Slight delay so focus settles before the print dialog opens
+        setTimeout(() => {
+          try {
+            iframe.contentWindow?.print()
+          } catch {
+            window.open(iframeUrl, '_blank')
+          }
+        }, 50)
+      } else {
+        window.open(iframeUrl, '_blank')
+      }
+    } catch {
+      window.open(iframeUrl, '_blank')
+    }
+  }, [iframeUrl])
 
   const docTypeLabel = docType === 'quotation' ? 'Quotation' : docType === 'service' ? 'Service Invoice' : 'Invoice'
 
@@ -175,15 +204,17 @@ export function DocumentHtmlViewer({ docId, docType = 'invoice', title, onClose,
             <span className="hidden sm:inline">Print A4</span>
           </button>
 
-          {/* Download PDF */}
-          <a
-            href={pdfDownloadUrl}
-            download={`${docTypeLabel}-${docId}.pdf`}
-            className="flex items-center gap-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-600 text-xs font-medium px-3 py-1.5 rounded transition"
+          {/* Download PDF — uses browser's native print-to-PDF so output
+              matches the on-screen preview pixel-perfect. */}
+          <button
+            onClick={handleSavePdf}
+            disabled={!iframeLoaded}
+            title="Click to open the print dialog — choose 'Save as PDF' as the destination to download a PDF that matches this preview exactly."
+            className="flex items-center gap-1.5 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 disabled:cursor-not-allowed text-white text-xs font-bold px-3 py-1.5 rounded shadow transition cursor-pointer"
           >
             <Download className="w-3.5 h-3.5" />
-            <span className="hidden sm:inline">PDF</span>
-          </a>
+            <span className="hidden sm:inline">Save PDF</span>
+          </button>
 
           {/* Open in New Tab */}
           <a

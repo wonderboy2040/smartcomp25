@@ -1234,6 +1234,26 @@ export async function generateInvoiceHtml(
         window.print();
       }
     });
+
+    // Auto-print when the page is opened with ?autoprint=1 in the URL — used by
+    // the "Open PDF in new tab" flow so the user gets the print dialog
+    // (which has "Save as PDF" as a destination) without an extra click.
+    (function() {
+      try {
+        var params = new URLSearchParams(window.location.search);
+        if (params.get('autoprint') === '1') {
+          // Wait for fonts + images to settle before opening the print dialog,
+          // otherwise the first print may render with fallback fonts.
+          if (document.readyState === 'complete') {
+            setTimeout(function() { window.print(); }, 250);
+          } else {
+            window.addEventListener('load', function() {
+              setTimeout(function() { window.print(); }, 250);
+            });
+          }
+        }
+      } catch (e) {}
+    })();
   </script>
 </body>
 </html>`
