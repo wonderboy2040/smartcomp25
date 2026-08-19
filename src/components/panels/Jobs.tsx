@@ -285,10 +285,18 @@ function NewJobDialog({ open, onOpenChange, editing, onSaved }: { open: boolean,
     estimatedAmount: Number(editing?.estimatedAmount ?? 0),
     advanceAmount: Number(editing?.advanceAmount ?? 0),
     advanceMode: editing?.advanceMode || 'Cash',
+    // v4.0: structured engineerId (linked to Engineers sheet) for financial
+    // tracking. Keep `assignedEngineer` for backward compat (free-text name).
+    engineerId: editing?.engineerId || '',
     assignedEngineer: editing?.assignedEngineer || '',
     notes: editing?.notes || '',
   })
   const [saving, setSaving] = useState(false)
+
+  // v4.0: Load engineers list so the New Job dialog can offer a structured
+  // engineer picker. Falls back to the free-text field if no engineers yet.
+  const { data: engineers } = useFetch<any[]>('/api/engineers', undefined)
+  const activeEngineers = useMemo(() => (engineers || []).filter((e) => e.active !== false && e.active !== 'false'), [engineers])
 
   const submit = async () => {
     if (!form.customerName || !form.customerMobile || !form.problemDesc) {
@@ -337,7 +345,44 @@ function NewJobDialog({ open, onOpenChange, editing, onSaved }: { open: boolean,
             <div><Label className="text-xs font-semibold text-slate-700">Advance</Label><Input type="number" value={form.advanceAmount} onChange={(e) => setForm({ ...form, advanceAmount: Number(e.target.value) })} className="h-10 bg-white mt-1" /></div>
             <div><Label className="text-xs font-semibold text-slate-700">Mode</Label><Select value={form.advanceMode} onValueChange={(v) => setForm({ ...form, advanceMode: v })}><SelectTrigger className="h-10 bg-white mt-1"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="Cash">Cash</SelectItem><SelectItem value="UPI">UPI</SelectItem></SelectContent></Select></div>
           </div>
-          <div><Label className="text-xs font-semibold text-slate-700">Assigned Engineer</Label><Input value={form.assignedEngineer} onChange={(e) => setForm({ ...form, assignedEngineer: e.target.value })} placeholder="Engineer name" className="h-10 bg-white mt-1" /></div>
+          <div>
+            <Label className="text-xs font-semibold text-slate-700">Assigned Engineer</Label>
+            {activeEngineers.length > 0 ? (
+              <Select
+                value={form.engineerId || 'none'}
+                onValueChange={(v) => {
+                  const engineerId = v === 'none' ? '' : v
+                  const picked = activeEngineers.find((e) => e.id === engineerId)
+                  setForm({
+                    ...form,
+                    engineerId,
+                    // Also set the legacy assignedEngineer name field so existing
+                    // reports / lists that use it keep working.
+                    assignedEngineer: picked?.name || form.assignedEngineer,
+                  })
+                }}
+              >
+                <SelectTrigger className="h-10 bg-white mt-1">
+                  <SelectValue placeholder="Select engineer..." />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">— Unassigned —</SelectItem>
+                  {activeEngineers.map((e) => (
+                    <SelectItem key={e.id} value={e.id}>
+                      {e.name}{e.specialization ? ` · ${e.specialization}` : ''}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            ) : (
+              <Input
+                value={form.assignedEngineer}
+                onChange={(e) => setForm({ ...form, assignedEngineer: e.target.value, engineerId: '' })}
+                placeholder="Engineer name (add engineers in the Engineers tab for tracking)"
+                className="h-10 bg-white mt-1"
+              />
+            )}
+          </div>
         </div>
         <DialogFooter className="mt-4"><Button variant="outline" onClick={() => onOpenChange(false)} className="bg-white">Cancel</Button><Button onClick={submit} disabled={saving} className="bg-blue-600 hover:bg-blue-700 text-white">{saving ? <><RefreshCw className="w-4 h-4 mr-1 animate-spin" /> Saving...</> : editing ? 'Update Job' : 'Create Job'}</Button></DialogFooter>
       </DialogContent>

@@ -7,13 +7,43 @@ export interface WhatsAppMessage {
   message: string
 }
 
-// Generate wa.me link for opening WhatsApp with prefilled message
+// Generate wa.me link for opening WhatsApp with prefilled message.
+// v12.5 FIX: A 10-digit Indian mobile (e.g., 9876543210) MUST be prefixed
+// with country code "91" before wa.me will route to the correct chat.
+// Without the prefix, wa.me treats it as an invalid international number
+// and shows a "Phone number not found" / "Couldn't find" error in WhatsApp
+// Web / WhatsApp Desktop.
+//
+// Examples handled:
+//   9876543210         → 919876543210
+//   09876543210        → 919876543210 (strip leading 0, add 91)
+//   +91 98765 43210    → 919876543210 (strip non-digits, keep 91)
+//   919876543210       → 919876543210 (already E.164, keep as-is)
+//   1 650 555 1234     → 16505551234  (US number, keep as-is — no India prefix)
 export function generateWhatsAppLink(phone: string, message: string): string {
   // Defensive: Google Sheets may store phone as a number, not a string.
   // Coerce to string before calling .replace(). Also handle null/undefined.
   const phoneStr = String(phone ?? '')
   const cleanPhone = phoneStr.replace(/[^\d]/g, '')
   const encoded = encodeURIComponent(message)
+
+  // Empty → just open WhatsApp with no recipient (user picks chat manually).
+  if (!cleanPhone) {
+    return `https://wa.me/?text=${encoded}`
+  }
+
+  // 10-digit mobile (no country code) → assume India, prefix 91.
+  if (cleanPhone.length === 10) {
+    return `https://wa.me/91${cleanPhone}?text=${encoded}`
+  }
+
+  // 11-digit starting with 0 (Indian landline-style leading 0) → strip 0, prefix 91.
+  if (cleanPhone.length === 11 && cleanPhone.startsWith('0')) {
+    return `https://wa.me/91${cleanPhone.slice(1)}?text=${encoded}`
+  }
+
+  // 12+ digits starting with 91 → already E.164, use as-is.
+  // Any other length → use as-is (let WhatsApp decide if it's valid).
   return `https://wa.me/${cleanPhone}?text=${encoded}`
 }
 
@@ -784,7 +814,16 @@ export async function shareWhatsAppPdf({
   const pdfFile = new File([blob], filename, { type: 'application/pdf' })
 
   const cleanPhone = String(customerPhone || '').replace(/[^\d]/g, '')
-  const targetPhone = cleanPhone.length === 10 ? `91${cleanPhone}` : cleanPhone.length > 10 ? cleanPhone : ''
+  // v12.5: Same normalization as generateWhatsAppLink — 10-digit Indian
+  // mobile → prefix with 91 so wa.me actually finds the chat.
+  let targetPhone = ''
+  if (cleanPhone.length === 10) {
+    targetPhone = '91' + cleanPhone
+  } else if (cleanPhone.length === 11 && cleanPhone.startsWith('0')) {
+    targetPhone = '91' + cleanPhone.slice(1)
+  } else if (cleanPhone.length >= 12) {
+    targetPhone = cleanPhone
+  }
 
   // Mobile: try Native Web Share API (passes the actual PDF file attachment).
   if (typeof navigator !== 'undefined' && navigator.canShare && navigator.canShare({ files: [pdfFile] })) {

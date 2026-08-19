@@ -352,7 +352,7 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
       const stringFields = [
         'customerName', 'customerMobile', 'deviceType', 'brandModel', 'serialNumber',
         'problemDesc', 'accessories', 'serviceType', 'priority',
-        'advanceMode', 'assignedEngineer', 'notes', 'diagnosisNotes',
+        'advanceMode', 'assignedEngineer', 'engineerId', 'notes', 'diagnosisNotes',
       ]
       for (const f of stringFields) {
         if (body[f] !== undefined) data[f] = String(body[f] ?? '')

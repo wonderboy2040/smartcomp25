@@ -906,6 +906,10 @@ export async function createInvoiceFull(data: {
   stockUpdates?: { id: string; deductQty: number }[]
   customerUpdate?: { id: string; creditBalance: number }
   payment?: any
+  // v4.0: optional engineer who sold these items. Used by the Engineers
+  // panel to compute sales commission per engineer.
+  engineerId?: string
+  engineerName?: string
 }): Promise<any> {
   const sanitized = sanitizeRowData(data as any)
   const db = await getDb()
@@ -945,6 +949,9 @@ export async function createInvoiceFull(data: {
     notes: sanitized.notes || '',
     template: sanitized.template || 'tally-classic',
     gstMode: sanitized.gstMode || 'gst',
+    // v4.0: Engineer attribution
+    engineerId: sanitized.engineerId || '',
+    engineerName: sanitized.engineerName || '',
     shareToken: '',
     createdAt: new Date().toISOString(),
     deleted: false,

@@ -87,7 +87,7 @@ export async function POST(req: NextRequest) {
     if (!check.allowed) return NextResponse.json({ error: 'Rate limited' }, { status: 429 })
 
     const body = await req.json()
-    const { customerId, items, courierCharges = 0, otherCharges = 0, discount = 0, paymentType = 'cash', amountPaid = 0, notes = '', date, deductStock = true, template = 'tally-classic', gstMode = 'gst', roundOff = false } = body
+    const { customerId, items, courierCharges = 0, otherCharges = 0, discount = 0, paymentType = 'cash', amountPaid = 0, notes = '', date, deductStock = true, template = 'tally-classic', gstMode = 'gst', roundOff = false, engineerId = '', engineerName = '' } = body
 
     if (!customerId) return NextResponse.json({ error: 'Customer required' }, { status: 400 })
     if (!Array.isArray(items) || items.length === 0) return NextResponse.json({ error: 'Items required' }, { status: 400 })
@@ -150,6 +150,10 @@ export async function POST(req: NextRequest) {
       customerName,
       customerPhone,
       customerGstin,
+      // v4.0: Engineer tracking — link this invoice to the engineer who sold
+      // the items so the Engineers panel can compute sales commission.
+      engineerId: String(engineerId || ''),
+      engineerName: String(engineerName || ''),
       items, // Pass raw items, server will compute too for safety
       itemsJson: JSON.stringify(calc.items),
       subtotal: calc.subtotal,

@@ -18,7 +18,7 @@ import {
 } from '@/components/ui/table'
 import { useToast } from '@/hooks/use-toast'
 import { formatCurrency, sumBy } from '@/lib/calc'
-import { Plus, Search, Pencil, Trash2, Package, AlertTriangle, Download, Tag, Folder, IndianRupee, TrendingUp, Boxes, Percent, FileText, Hash, KeyRound, ScanLine } from 'lucide-react'
+import { Plus, Search, Pencil, Trash2, Package, AlertTriangle, Download, Tag, Folder, IndianRupee, TrendingUp, Boxes, Percent, FileText, Hash, KeyRound, ScanLine, Building2 } from 'lucide-react'
 import { toCSV, downloadCSV } from '@/lib/utils'
 import { BarcodeScanner } from '@/components/BarcodeScanner'
 
@@ -490,6 +490,7 @@ export function StockPanel() {
         onOpenChange={setPurchaseDialogOpen}
         items={items || []}
         refetch={refetch}
+        suppliers={suppliers || []}
       />
     </div>
   )
@@ -872,15 +873,21 @@ interface PurchaseLine {
   newUnit: string
   newHsnCode: string
   newBarcode: string
+  // v4.0: Supplier + engineer attribution per line so bulk-purchase rows
+  // correctly link to the supplier they came from.
+  supplierId: string
+  engineerId: string
 }
 
 function PurchaseDialog({
-  open, onOpenChange, items, refetch,
+  open, onOpenChange, items, refetch, suppliers, engineers,
 }: {
   open: boolean
   onOpenChange: (v: boolean) => void
   items: any[]
   refetch: () => void
+  suppliers?: any[]
+  engineers?: any[]
 }) {
   const emptyLine = (): PurchaseLine => ({
     mode: 'existing',
@@ -896,6 +903,9 @@ function PurchaseDialog({
     newUnit: 'pcs',
     newHsnCode: '',
     newBarcode: '',
+    // v4.0: default to no supplier / no engineer — user picks from dropdowns.
+    supplierId: '',
+    engineerId: '',
   })
   const [lines, setLines] = useState<PurchaseLine[]>([emptyLine()])
   const [saving, setSaving] = useState(false)
@@ -961,6 +971,8 @@ function PurchaseDialog({
             sellingPrice: line.sellingPrice,
             quantity: line.quantity,
             minQuantity: 0,
+            // v4.0: link the new item to the supplier picked for this line
+            supplierId: line.supplierId || '',
           })
           createdCount++
           // The POST already sets quantity, so no need for a second PUT
@@ -975,6 +987,10 @@ function PurchaseDialog({
             quantity: newQty,
             costPrice: line.costPrice,
             sellingPrice: line.sellingPrice,
+            // v4.0: if the user picked a supplier on this line, also update
+            // the item's stored supplierId so future invoices / reports can
+            // trace back to the latest supplier for this item.
+            ...(line.supplierId ? { supplierId: line.supplierId } : {}),
           })
           updatedCount++
         }
@@ -1016,6 +1032,45 @@ function PurchaseDialog({
         </DialogHeader>
 
         <div className="space-y-3">
+          {/* v4.0: Supplier selector — applies to ALL lines in this purchase.
+              Single source of truth for "where did these items come from". */}
+          <div className="bg-violet-50 border border-violet-200 rounded-lg p-3">
+            <div className="flex items-center justify-between mb-2">
+              <Label className="text-xs font-bold text-violet-900 flex items-center gap-1.5">
+                <Building2 className="w-3.5 h-3.5" />
+                Supplier for this purchase (optional)
+              </Label>
+              <span className="text-[10px] text-violet-700 font-medium">
+                Applied to all {lines.length} line(s)
+              </span>
+            </div>
+            <Select
+              value={lines[0]?.supplierId || 'none'}
+              onValueChange={(v) => {
+                const supplierId = v === 'none' ? '' : v
+                // Apply to ALL lines (most purchases come from one supplier)
+                setLines((prev) => prev.map((l) => ({ ...l, supplierId })))
+              }}
+            >
+              <SelectTrigger className="h-9 text-sm bg-white">
+                <SelectValue placeholder="Select supplier (optional)..." />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="none">— No supplier / walk-in —</SelectItem>
+                {(suppliers || []).map((s) => (
+                  <SelectItem key={s.id} value={s.id}>
+                    {s.name}{s.phone ? ` · ${s.phone}` : ''}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            {(suppliers || []).length === 0 && (
+              <p className="text-[10px] text-violet-700 mt-1.5">
+                💡 No suppliers yet — add them in the Suppliers panel to enable supplier-linked purchase tracking.
+              </p>
+            )}
+          </div>
+
           {/* Header row */}
           <div className="grid grid-cols-12 gap-2 px-1 text-xs font-semibold text-slate-500 uppercase tracking-wide">
             <div className="col-span-4">Item</div>
@@ -1115,14 +1170,9 @@ function PurchaseDialog({
                         <Label className="text-[9px] text-slate-500">Category</Label>
                         <Input value={line.newCategory} onChange={(e) => updateLine(idx, { newCategory: e.target.value })} placeholder="General" className="h-8 text-sm bg-white" list="purchase-categories" />
                         <datalist id="purchase-categories">
-                          <option value="Laptop" />
-                          <option value="Desktop PC" />
-                          <option value="RAM / Memory" />
-                          <option value="SSD / Hard Drive" />
-                          <option value="Printer & Scanner" />
-                          <option value="General" />
-                          <option value="Accessories" />
-                          <option value="Networking" />
+                          {PRESET_CATEGORIES.map((cat) => (
+                            <option key={cat} value={cat} />
+                          ))}
                         </datalist>
                       </div>
                       <div className="col-span-2">

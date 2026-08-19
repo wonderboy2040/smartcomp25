@@ -170,7 +170,11 @@ export async function POST(req: NextRequest) {
       advanceAmount,
       advanceMode: String(body?.advanceMode || ''),
       status: 'Pending',
+      // v4.0: Keep legacy `assignedEngineer` (free-text name) for backward
+      // compat AND add structured `engineerId` so the Engineers panel can
+      // link this job to a specific engineer row for financial reporting.
       assignedEngineer: String(body?.assignedEngineer || ''),
+      engineerId: String(body?.engineerId || ''),
       partsUsedJson: '[]',
       finalAmount: 0,
       serviceCharge: 0,

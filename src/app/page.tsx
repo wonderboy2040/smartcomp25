@@ -9,7 +9,7 @@ import { useTheme } from '@/lib/theme-context'
 import { PdfPreviewProvider } from '@/lib/preview-context'
 import { PanelErrorBoundary } from '@/components/PanelErrorBoundary'
 import { DashboardView } from '@/components/panels/Dashboard'
-import { LayoutDashboard, Package, FileText, FileCheck2, Users, Building2, Wallet, MessageSquare, Settings, Store, Menu, X, Loader2, Wrench, LogOut, Receipt, BarChart3, Boxes, PiggyBank, FileSpreadsheet, Megaphone, ShieldAlert, FileSignature, Sun, Moon, Zap, Wifi, ShieldCheck, Sparkles, Brain, Command, BrainCircuit, Workflow, PackageCheck, Printer, ClipboardList, Target, FileBarChart } from 'lucide-react'
+import { LayoutDashboard, Package, FileText, FileCheck2, Users, Building2, Wallet, MessageSquare, Settings, Store, Menu, X, Loader2, Wrench, LogOut, Receipt, BarChart3, Boxes, PiggyBank, FileSpreadsheet, Megaphone, ShieldAlert, FileSignature, Sun, Moon, Zap, Wifi, ShieldCheck, Sparkles, Brain, Command, BrainCircuit, Workflow, PackageCheck, Printer, ClipboardList, Target, FileBarChart, UserCog } from 'lucide-react'
 
 // ===== DYNAMIC IMPORTS FOR HEAVY PANELS =====
 const StockPanel = lazy(() => import('@/components/panels/Stock').then(m => ({ default: m.StockPanel })))
@@ -21,6 +21,7 @@ const PaymentsPanel = lazy(() => import('@/components/panels/Payments').then(m =
 const WhatsAppPanel = lazy(() => import('@/components/panels/WhatsApp').then(m => ({ default: m.WhatsAppPanel })))
 const SettingsPanel = lazy(() => import('@/components/panels/Settings').then(m => ({ default: m.SettingsPanel })))
 const JobsPanel = lazy(() => import('@/components/panels/Jobs').then(m => ({ default: m.JobsPanel })))
+const EngineersPanel = lazy(() => import('@/components/panels/Engineers').then(m => ({ default: m.EngineersPanel })))
 const ServicePaymentsPanel = lazy(() => import('@/components/panels/ServicePayments').then(m => ({ default: m.ServicePaymentsPanel })))
 const ExpensesPanel = lazy(() => import('@/components/panels/Expenses').then(m => ({ default: m.ExpensesPanel })))
 const ReportsPanel = lazy(() => import('@/components/panels/Reports').then(m => ({ default: m.ReportsPanel })))
@@ -56,6 +57,7 @@ const NAV_ITEMS = [
   { id: 'supplierpayments', label: 'Supplier Payments', icon: Wallet, color: 'text-orange-600' },
   { id: 'whatsapp', label: 'WhatsApp Enquiry', icon: MessageSquare, color: 'text-green-600' },
   { id: 'jobs', label: 'Service Jobs', icon: Wrench, color: 'text-blue-600' },
+  { id: 'engineers', label: 'Engineers', icon: UserCog, color: 'text-indigo-600' },
   { id: 'servicepayments', label: 'Service Payments', icon: Wallet, color: 'text-purple-600' },
   { id: 'serials', label: 'Serials & Warranty', icon: Boxes, color: 'text-indigo-600' },
   { id: 'amc', label: 'AMC Contract', icon: FileSignature, color: 'text-blue-600' },
@@ -576,6 +578,9 @@ function HomeInner() {
             </PanelBoundary>
             <PanelBoundary active={active} id="jobs" mounted={mountedPanels.has('jobs')}>
               <JobsPanel />
+            </PanelBoundary>
+            <PanelBoundary active={active} id="engineers" mounted={mountedPanels.has('engineers')}>
+              <EngineersPanel />
             </PanelBoundary>
             <PanelBoundary active={active} id="servicepayments" mounted={mountedPanels.has('servicepayments')}>
               <ServicePaymentsPanel />
