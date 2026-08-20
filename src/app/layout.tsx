@@ -13,11 +13,11 @@ const geistSans = Geist({
 
 export const metadata: Metadata = {
   title: {
-    default: "Smart Computers — Sales & Service Panel v6.2 Premium",
+    default: "Smart Computers — Sales & Service Panel v12.6 Pro",
     template: "%s · Smart Computers",
   },
   description:
-    "Complete shop management panel for computer sales and service with invoicing, quotations, GST, payments, WhatsApp enquiries, Google Sheets sync, PWA support, and complete light/dark theme support.",
+    "Complete shop management panel for computer sales and service with invoicing, quotations, GST, payments, WhatsApp enquiries, Firebase Firestore backend, PWA support, and complete light/dark theme support.",
   applicationName: "Smart Computers",
   manifest: "/manifest.json",
   appleWebApp: {

@@ -72,7 +72,7 @@ export async function GET(req: Request) {
   return NextResponse.json(
     {
       status: 'ok',
-      version: '11.5.0-firebase-only',
+      version: '12.6.0-firebase-only',
       codename: 'SmartComp Pro Firebase',
       timestamp: new Date().toISOString(),
       uptime: typeof process.uptime === 'function' ? process.uptime() : 0,

@@ -1,7 +1,7 @@
 {
   "name": "Smart Computers - Sales & Service Panel",
   "short_name": "SmartComp",
-  "description": "Complete shop management panel for computers sales & service with invoicing, quotations, GST, payments, WhatsApp enquiries and Google Sheets sync.",
+  "description": "Complete shop management panel for computers sales & service with invoicing, quotations, GST, payments, WhatsApp enquiries and Firebase Firestore backend.",
   "id": "/",
   "start_url": "/",
   "scope": "/",
