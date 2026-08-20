@@ -146,6 +146,76 @@ function mergeRecentlyCommitted(url: string, data: any): any {
   return [...missing, ...data]
 }
 
+// ===== RECENTLY UPDATED ROWS — anti-eviction guard for PUT (v12.6) =====
+// Same idea as `recentlyCommittedRows` but for edits: when a PUT succeeds,
+// the optimistic patch is already in the cache. But the panel's onSaved()
+// handler also calls refetch(), which fires a GET. Firestore is eventually
+// consistent — the GET can return the PRE-edit version of that row for
+// 1-3 seconds after the PUT commits. Without this guard, setCache() would
+// overwrite the good optimistic row with the stale server value, and the
+// UI would flash back to the pre-edit state until the next refetch.
+//
+// We track each updated row's id + new fields for 30 seconds. When a GET
+// response arrives for the same endpoint, we re-apply the saved fields
+// onto any row whose id matches — but ONLY if the server's row appears
+// older (no `updatedAt` field, or `updatedAt` is older than the saved one).
+const recentlyUpdatedRows = new Map<string, Map<string, { row: any; expiresAt: number }>>()
+const UPDATED_TTL = 30 * 1000
+
+function trackRecentlyUpdated(listUrl: string, rowId: string, row: any) {
+  if (!rowId || !row) return
+  let m = recentlyUpdatedRows.get(listUrl)
+  if (!m) {
+    m = new Map()
+    recentlyUpdatedRows.set(listUrl, m)
+  }
+  m.set(rowId, { row, expiresAt: Date.now() + UPDATED_TTL })
+  setTimeout(() => {
+    const mm = recentlyUpdatedRows.get(listUrl)
+    if (mm) {
+      mm.delete(rowId)
+      if (mm.size === 0) recentlyUpdatedRows.delete(listUrl)
+    }
+  }, UPDATED_TTL)
+}
+
+/**
+ * Re-apply any recently-saved edits onto a GET response so stale data from
+ * eventually-consistent Firestore reads cannot undo the user's just-saved
+ * changes. Only overlays fields if the server's row is older or has no
+ * `updatedAt` field — newer server data wins.
+ */
+function mergeRecentlyUpdated(url: string, data: any): any {
+  if (!Array.isArray(data)) return data
+  const listUrl = baseUrlOf(url)
+  const m = recentlyUpdatedRows.get(listUrl)
+  if (!m || m.size === 0) return data
+  const now = Date.now()
+  let changed = false
+  const result = data.map((row: any) => {
+    const rowId = String(row?.id || '')
+    if (!rowId) return row
+    const entry = m.get(rowId)
+    if (!entry) return row
+    if (entry.expiresAt < now) {
+      m.delete(rowId)
+      return row
+    }
+    // If the server's row has an `updatedAt` newer than what we saved, the
+    // server is fresher — don't overlay.
+    const serverUpdated = row?.updatedAt ? new Date(row.updatedAt).getTime() : 0
+    const savedUpdated = entry.row?.updatedAt ? new Date(entry.row.updatedAt).getTime() : Date.now()
+    if (serverUpdated && serverUpdated > savedUpdated) {
+      // Server has newer data — drop our tracking, server wins.
+      m.delete(rowId)
+      return row
+    }
+    changed = true
+    return { ...row, ...entry.row }
+  })
+  return changed ? result : data
+}
+
 /**
  * Write a freshly created row into every cached list for its endpoint.
  * Replaces the optimistic placeholder when it is still there, and otherwise
@@ -759,6 +829,9 @@ async function doFetchWithRetry(url: string, options?: RequestInit, attempt = 1)
     // is missing (Firestore is eventually consistent — a read arriving 1-2s
     // after a write may not include the just-written row).
     data = mergeRecentlyCommitted(url, data)
+    // v12.6: Also re-apply any recently-saved edits so stale reads can't
+    // undo the user's just-saved changes.
+    data = mergeRecentlyUpdated(url, data)
 
     // Quantum: hash check like lastCloudDataHash to skip redundant re-renders.
     // IMPORTANT: do NOT mutate lastDataHash here — setCache() is the single owner
@@ -1085,6 +1158,10 @@ export async function apiPut(url: string, body: ApiBody) {
     }
 
     const updatedId = entity?.id || targetId
+    // v12.6: Track this update so a racing GET (fired by the panel's
+    // onSaved → refetch) cannot overwrite the just-saved row with stale
+    // eventually-consistent Firestore data.
+    trackRecentlyUpdated(listUrl, String(updatedId), { ...entity, updatedAt: entity?.updatedAt || new Date().toISOString() })
     // Replace optimistic item with real server data, remove _pending flag
     for (const key of affectedKeys) {
       mutate<any[]>(key, (prev) =>

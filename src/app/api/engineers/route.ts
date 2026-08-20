@@ -53,6 +53,12 @@ export async function GET(req: NextRequest) {
     // Pre-aggregate Jobs by assignedEngineer (engineer name on legacy rows,
     // engineerId on v4 rows). We use BOTH because the panel allowed free-text
     // engineer names before this update — those rows won't have engineerId.
+    //
+    // v12.6 FIX: Previously a job with BOTH `engineerId` and a legacy
+    // `assignedEngineer` name could be double-counted (counted for engineer A
+    // via engineerId AND for engineer B via name match). Now we track jobs
+    // by engineerId only when present; legacy name matching applies only to
+    // rows with no engineerId (so old jobs still get attributed correctly).
     const jobsByEngId = new Map<string, any[]>()
     const jobsByEngName = new Map<string, any[]>()
     for (const job of jobs) {
@@ -61,7 +67,10 @@ export async function GET(req: NextRequest) {
       if (engId) {
         if (!jobsByEngId.has(engId)) jobsByEngId.set(engId, [])
         jobsByEngId.get(engId)!.push(job)
+        // v12.6: Don't ALSO add to jobsByEngName — that was the double-count bug.
+        continue
       }
+      // Only fall back to legacy name matching for rows WITHOUT an engineerId.
       if (engName) {
         if (!jobsByEngName.has(engName)) jobsByEngName.set(engName, [])
         jobsByEngName.get(engName)!.push(job)
@@ -118,8 +127,11 @@ export async function GET(req: NextRequest) {
 
       // Commission — engineer's commissionRate is a percentage (0-100) of
       // gross profit. Default 0 if not set on the engineer row.
+      // v12.6 FIX: Clamp to 0 when grossProfit is negative (parts cost exceeds
+      // service revenue). Without this the UI showed "Earned: -Rs.400" which
+      // looked like a bug. The engineer simply earns 0 commission on loss jobs.
       const commissionRate = Math.max(0, Math.min(100, Number(eng?.commissionRate) || 0))
-      const commissionEarned = money((grossProfit * commissionRate) / 100)
+      const commissionEarned = money(Math.max(0, (grossProfit * commissionRate) / 100))
       const commissionPaid = money(commissionPaidByEng.get(engId) || 0)
       const commissionDue = money(Math.max(0, commissionEarned - commissionPaid))
 

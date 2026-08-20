@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect, useRef, useCallback } from 'react'
 import { Printer, Download, X, FileText, RefreshCw, ExternalLink } from 'lucide-react'
+import { useToast } from '@/hooks/use-toast'
 
 // ─── Template list (in sync with doc-html.ts) ───
 const TEMPLATES = [
@@ -44,6 +45,7 @@ export interface DocumentHtmlViewerProps {
  * All three use the SAME doc-html.ts rendering engine.
  */
 export function DocumentHtmlViewer({ docId, docType = 'invoice', title, onClose, gstMode = 'gst' }: DocumentHtmlViewerProps) {
+  const { toast } = useToast()
   const [templateId, setTemplateId] = useState<string>('tally-classic')
   const [bannerVariant, setBannerVariant] = useState<string>('flyer')
   const [iframeLoaded, setIframeLoaded] = useState(false)
@@ -119,19 +121,34 @@ export function DocumentHtmlViewer({ docId, docType = 'invoice', title, onClose,
     const url = `${iframeUrl}${iframeUrl.includes('?') ? '&' : '?'}autoprint=1`
     const win = window.open(url, '_blank', 'noopener,noreferrer')
     if (!win) {
-      // Popup blocker fired — fall back to triggering print inside the
-      // embedded iframe (works in most browsers, fails silently in others).
+      // v12.6 FIX: Popup blocker fired. Previously this fell through to
+      // `window.location.href = url` which destructively navigated the whole
+      // SPA away, losing all client state (open dialogs, unsaved form data,
+      // in-memory cache). Now we keep the user on the page and tell them
+      // exactly what to do: either allow popups, or use the Print A4 button
+      // which works without a popup.
+      if (toast) {
+        toast({
+          title: 'Popup blocked',
+          description: 'Allow popups for this site and click "Download PDF" again, or use the "Print A4" button → choose "Save as PDF" as the destination.',
+          variant: 'destructive',
+          duration: 8000,
+        })
+      }
+      // Best-effort: also try triggering print inside the embedded iframe.
+      // The iframe's HTML doesn't have autoprint=1 in its src (the user
+      // picked the template, not the autoprint variant), so we can't
+      // auto-print — but calling .print() may still open the dialog on
+      // some browsers (Chrome desktop does; Firefox doesn't).
       try {
         const iframe = iframeRef.current
         iframe?.contentWindow?.focus()
         iframe?.contentWindow?.print()
       } catch {
-        // Last resort: just navigate to the URL so the user can manually
-        // print/save from the new tab.
-        window.location.href = url
+        // Silent — the toast above told the user what to do.
       }
     }
-  }, [docId, iframeUrl])
+  }, [docId, iframeUrl, toast])
 
   const docTypeLabel = docType === 'quotation' ? 'Quotation' : docType === 'service' ? 'Service Invoice' : 'Invoice'
 

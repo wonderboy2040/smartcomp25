@@ -5,16 +5,34 @@ import { generateInvoiceHtml } from '@/lib/doc-html'
 import { loadProductImages } from '@/lib/productImages'
 import { computeInvoice, type LineItem } from '@/lib/calc'
 import { safeJsonParse } from '@/lib/utils'
+import { apiLimiter, writeLimiter, getClientIp } from '@/lib/rate-limit'
 import { execFile } from 'child_process'
 import { promisify } from 'util'
 import { mkdtemp, writeFile, readFile, rm } from 'fs/promises'
 import { join } from 'path'
 import { tmpdir } from 'os'
+import { access, constants } from 'fs'
 
 const execFileAsync = promisify(execFile)
 
 export const runtime = 'nodejs'
 export const maxDuration = 60
+
+// Cache WeasyPrint availability so we don't probe the binary on every request.
+let weasyPrintAvailable: boolean | null = null
+async function isWeasyPrintAvailable(): Promise<boolean> {
+  if (weasyPrintAvailable !== null) return weasyPrintAvailable
+  const bin = process.env.WEASYPRINT_BIN || '/home/z/.venv/bin/weasyprint'
+  try {
+    await new Promise<void>((resolve, reject) => {
+      access(bin, constants.X_OK, (err) => err ? reject(err) : resolve())
+    })
+    weasyPrintAvailable = true
+  } catch {
+    weasyPrintAvailable = false
+  }
+  return weasyPrintAvailable
+}
 
 /**
  * POST /api/whatsapp/send-pdf
@@ -34,6 +52,16 @@ export const maxDuration = 60
  */
 export async function POST(req: NextRequest) {
   try {
+    // v12.6: Rate-limit this endpoint — each call spawns WeasyPrint (50 MB
+    // RSS) and uploads to Meta (billed per message). Without a limiter a
+    // compromised PIN could exhaust server memory or run up the WhatsApp
+    // Cloud API bill in minutes.
+    const ip = getClientIp(req)
+    const writeCheck = writeLimiter(ip)
+    if (!writeCheck.allowed) {
+      return NextResponse.json({ error: 'Rate limited — too many PDF sends. Try again in a minute.' }, { status: 429 })
+    }
+
     if (!isConfigured()) {
       return NextResponse.json({ error: 'Firebase not configured' }, { status: 503 })
     }
@@ -179,6 +207,16 @@ export async function POST(req: NextRequest) {
     }
 
     const html = await generateInvoiceHtml(pdfDocData, String(docId))
+
+    // v12.6: Probe WeasyPrint once and cache the result. If it's missing,
+    // return a typed error so the client can fall back gracefully instead
+    // of getting a confusing 500 from execFile ENOENT.
+    if (!(await isWeasyPrintAvailable())) {
+      return NextResponse.json(
+        { success: false, error: 'weasyprint-not-installed', hint: 'WeasyPrint binary not found on the server. Install it (pip install weasyprint) and set WEASYPRINT_BIN env var.' },
+        { status: 501 },
+      )
+    }
 
     // Convert HTML → PDF via WeasyPrint (same engine the new POST /api/doc-html
     // uses, so the PDF matches the on-screen preview).

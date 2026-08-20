@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useMemo, useCallback } from 'react'
-import { useFetch, apiPost, apiDelete } from '@/lib/api'
+import { useFetch, apiPost, apiDelete, invalidate } from '@/lib/api'
 import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -67,6 +67,11 @@ export function InvoicesPanel() {
       })
       toast({ title: `Payment of Rs.${amt.toLocaleString('en-IN')} recorded ✓`, description: payTarget.number })
       setPayTarget(null)
+      // v12.6: Invalidate the Payments list cache so the Payments panel
+      // reflects the new payment immediately when the user switches to it.
+      // Previously it served the stale list (180s TTL) and the new payment
+      // was invisible for up to 3 minutes.
+      invalidate('/api/payments')
       refetch()
     } catch (e: any) {
       toast({ title: 'Payment failed', description: e?.message, variant: 'destructive', duration: 6000 })
@@ -433,7 +438,11 @@ export function InvoicesPanel() {
               <Input
                 type="number"
                 value={payAmount || ''}
-                onChange={(e) => setPayAmount(Number(e.target.value))}
+                onChange={(e) => {
+                  // v12.6: Allow empty string while typing.
+                  const v = e.target.value
+                  setPayAmount(v === '' ? (0 as any) : Number(v))
+                }}
                 placeholder="0"
                 className="mt-1 h-11 bg-white font-bold text-base"
               />

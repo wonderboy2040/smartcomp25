@@ -489,8 +489,14 @@ export function QuotationsPanel() {
               <Label className="text-xs font-semibold">Payment Received Now (Rs.) — optional</Label>
               <Input
                 type="number"
-                value={convertPaid || ''}
-                onChange={(e) => setConvertPaid(Number(e.target.value))}
+                value={convertPaid === 0 ? '' : convertPaid}
+                onChange={(e) => {
+                  // v12.6: Allow empty string while typing (so the user can
+                  // clear the field and re-type). `Number('')` is 0, which
+                  // would otherwise show '0' instead of empty.
+                  const v = e.target.value
+                  setConvertPaid(v === '' ? 0 : Number(v))
+                }}
                 placeholder="0"
                 className="mt-1 h-11 bg-white font-bold text-base"
               />

@@ -4,11 +4,13 @@ import { generateInvoiceHtml } from '@/lib/doc-html'
 import { loadProductImages } from '@/lib/productImages'
 import { computeInvoice, type LineItem } from '@/lib/calc'
 import { safeJsonParse } from '@/lib/utils'
+import { apiLimiter, writeLimiter, getClientIp } from '@/lib/rate-limit'
 import { execFile } from 'child_process'
 import { promisify } from 'util'
 import { mkdtemp, writeFile, readFile, rm } from 'fs/promises'
 import { join } from 'path'
 import { tmpdir } from 'os'
+import { access, constants } from 'fs'
 
 const execFileAsync = promisify(execFile)
 
@@ -16,6 +18,30 @@ const execFileAsync = promisify(execFile)
 export const runtime = 'nodejs'
 // PDF generation can take longer (spawning weasyprint ~ 2-5s)
 export const maxDuration = 60
+
+// v12.6 FIX: PDF_CACHE MUST be at module scope, not inside the POST handler.
+// Previously it was function-local, so it was recreated on every call — the
+// LRU never reused anything and every PDF download re-ran WeasyPrint.
+type PdfCacheEntry = { buffer: Buffer; expires: number }
+const PDF_CACHE = new Map<string, PdfCacheEntry>()
+const PDF_CACHE_TTL = 10 * 60 * 1000
+const PDF_CACHE_MAX = 40
+
+// Cache WeasyPrint availability so we don't probe the binary on every request.
+let weasyPrintAvailable: boolean | null = null
+async function isWeasyPrintAvailable(): Promise<boolean> {
+  if (weasyPrintAvailable !== null) return weasyPrintAvailable
+  const bin = process.env.WEASYPRINT_BIN || '/home/z/.venv/bin/weasyprint'
+  try {
+    await new Promise<void>((resolve, reject) => {
+      access(bin, constants.X_OK, (err) => err ? reject(err) : resolve())
+    })
+    weasyPrintAvailable = true
+  } catch {
+    weasyPrintAvailable = false
+  }
+  return weasyPrintAvailable
+}
 
 // In-memory LRU cache — HTML is fully deterministic per (id, type, template, banner)
 // so we can cache the rendered string for 10 minutes and serve instantly.
@@ -369,12 +395,15 @@ export async function POST(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> },
 ) {
-  // PDF cache (separate from HTML cache so HTML stays hot for preview).
-  type PdfCacheEntry = { buffer: Buffer; expires: number }
-  const PDF_CACHE = new Map<string, PdfCacheEntry>()
-  const PDF_CACHE_TTL = 10 * 60 * 1000
-
   try {
+    // v12.6: Rate-limit — POST spawns WeasyPrint (50 MB RSS per call). Without
+    // a limiter a logged-in user could exhaust server memory in seconds.
+    const ip = getClientIp(req)
+    const writeCheck = writeLimiter(ip)
+    if (!writeCheck.allowed) {
+      return NextResponse.json({ error: 'Rate limited — too many PDF generations. Try again in a minute.' }, { status: 429 })
+    }
+
     if (!isConfigured()) {
       return NextResponse.json({ error: 'Firebase not configured' }, { status: 503 })
     }
@@ -401,6 +430,9 @@ export async function POST(
     const cacheKey = `${id}:${type}:${templateId}:${bannerVariant}:${gstMode}:${rowFingerprint(row)}`
     const cached = PDF_CACHE.get(cacheKey)
     if (cached && cached.expires > Date.now()) {
+      // v12.6: LRU touch — move-to-end so the most-recently-used entries survive.
+      PDF_CACHE.delete(cacheKey)
+      PDF_CACHE.set(cacheKey, cached)
       return new NextResponse(cached.buffer, {
         headers: {
           'Content-Type': 'application/pdf',
@@ -533,8 +565,24 @@ export async function POST(
     }
 
     const html = await generateInvoiceHtml(pdfDocData, id)
+
+    // v12.6: Probe WeasyPrint once and cache the result. If it's missing,
+    // return a typed error so the client can fall back to the old jsPDF
+    // engine instead of returning a confusing 500.
+    if (!(await isWeasyPrintAvailable())) {
+      return NextResponse.json(
+        { error: 'weasyprint-not-installed', hint: 'WeasyPrint binary not found on the server. Falling back to jsPDF engine.' },
+        { status: 501 },
+      )
+    }
+
     const pdfBuffer = await renderHtmlToPdfWithWeasyprint(html)
 
+    // v12.6: LRU eviction — evict oldest entry when cache is full.
+    if (PDF_CACHE.size >= PDF_CACHE_MAX) {
+      const oldestKey = PDF_CACHE.keys().next().value
+      if (oldestKey) PDF_CACHE.delete(oldestKey)
+    }
     PDF_CACHE.set(cacheKey, { buffer: pdfBuffer, expires: Date.now() + PDF_CACHE_TTL })
 
     return new NextResponse(pdfBuffer, {
