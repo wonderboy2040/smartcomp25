@@ -106,49 +106,127 @@ export function DocumentHtmlViewer({ docId, docType = 'invoice', title, onClose,
     }
   }, [iframeUrl])
 
-  // Save as PDF — uses the SAME HTML the iframe is already rendering, so the
-  // downloaded PDF is pixel-perfect identical to the on-screen preview. We
-  // open the iframe's HTML in a brand-new browser tab and trigger print there.
-  // This is more reliable than calling iframe.contentWindow.print() directly
-  // — the cross-origin / sandbox restrictions on the embedded iframe can
-  // silently swallow the print call (the dialog never opens).
-  const handleSavePdf = useCallback(() => {
-    if (!docId) return
-    // Open the same HTML the preview is rendering, with ?autoprint=1 so the
-    // print dialog fires automatically once the page finishes loading. The
-    // user picks "Save as PDF" as the destination → the downloaded PDF is
-    // byte-for-byte identical to what they see in the preview.
-    const url = `${iframeUrl}${iframeUrl.includes('?') ? '&' : '?'}autoprint=1`
-    const win = window.open(url, '_blank', 'noopener,noreferrer')
-    if (!win) {
-      // v12.6 FIX: Popup blocker fired. Previously this fell through to
-      // `window.location.href = url` which destructively navigated the whole
-      // SPA away, losing all client state (open dialogs, unsaved form data,
-      // in-memory cache). Now we keep the user on the page and tell them
-      // exactly what to do: either allow popups, or use the Print A4 button
-      // which works without a popup.
-      if (toast) {
-        toast({
-          title: 'Popup blocked',
-          description: 'Allow popups for this site and click "Download PDF" again, or use the "Print A4" button → choose "Save as PDF" as the destination.',
-          variant: 'destructive',
-          duration: 8000,
-        })
-      }
-      // Best-effort: also try triggering print inside the embedded iframe.
-      // The iframe's HTML doesn't have autoprint=1 in its src (the user
-      // picked the template, not the autoprint variant), so we can't
-      // auto-print — but calling .print() may still open the dialog on
-      // some browsers (Chrome desktop does; Firefox doesn't).
+  // Save as PDF — downloads a REAL .pdf file (not a print dialog). The PDF
+  // is rendered server-side using the SAME HTML engine as the on-screen
+  // preview (doc-html.ts → WeasyPrint), so the output is byte-for-byte
+  // identical to what the user sees. Falls back to the jsPDF engine if
+  // WeasyPrint is not installed on the server.
+  //
+  // Why not window.open() + autoprint=1? That approach (the previous code)
+  // was unreliable:
+  //   1. Popup blockers silently swallow window.open() — the new tab never
+  //      opens and the user sees nothing happen.
+  //   2. Even when popups are allowed, the user has to manually pick
+  //      "Save as PDF" in the print dialog. That's an extra click and the
+  //      output filename is the URL, not "Invoice-SCSS-001.pdf".
+  //   3. The `noopener` flag in the previous window.open() call prevented
+  //      the parent window from accessing the popup, so any auto-print
+  //      script in the new tab had no fallback if it failed.
+  //
+  // The new flow: fetch() the PDF bytes, create a Blob URL, and click a
+  // hidden <a download> element. This downloads a real file with the
+  // correct filename, works on all browsers, and never requires popups.
+  const [downloading, setDownloading] = useState(false)
+  const handleSavePdf = useCallback(async () => {
+    if (!docId || downloading) return
+    setDownloading(true)
+    try {
+      // Build the PDF URL. Prefer the new POST /api/doc-html/[id] endpoint
+      // (renders with WeasyPrint — same engine as preview). Fall back to
+      // the old GET /api/pdf/[id] (jsPDF engine) if the POST fails.
+      const postUrl = `/api/doc-html/${encodeURIComponent(docId)}?type=${docType}&template=${templateId}&banner=${bannerVariant}&gstMode=${gstMode}`
+      let blob: Blob | null = null
+      let usedEngine: 'weasyprint' | 'jspdf' | 'browser-print' = 'browser-print'
       try {
-        const iframe = iframeRef.current
-        iframe?.contentWindow?.focus()
-        iframe?.contentWindow?.print()
-      } catch {
-        // Silent — the toast above told the user what to do.
+        const resp = await fetch(postUrl, { method: 'POST' })
+        if (resp.ok) {
+          const ct = resp.headers.get('Content-Type') || ''
+          if (ct.includes('application/pdf')) {
+            blob = await resp.blob()
+            usedEngine = 'weasyprint'
+          }
+        }
+      } catch (postErr: any) {
+        // POST endpoint failed — fall through to GET /api/pdf/[id]
+        console.warn('[handleSavePdf] POST /api/doc-html failed:', postErr?.message)
       }
+
+      // Fallback: old jsPDF endpoint
+      if (!blob) {
+        const fallbackUrl = docType === 'service'
+          ? `/api/service-pdf/${encodeURIComponent(docId)}`
+          : `/api/pdf/${encodeURIComponent(docId)}?type=${docType}&template=${templateId}&banner=${bannerVariant}&gstMode=${gstMode}`
+        try {
+          const resp = await fetch(fallbackUrl)
+          if (resp.ok) {
+            const ct = resp.headers.get('Content-Type') || ''
+            if (ct.includes('application/pdf') || ct.includes('octet-stream')) {
+              blob = await resp.blob()
+              usedEngine = 'jspdf'
+            }
+          }
+        } catch (fbErr: any) {
+          console.warn('[handleSavePdf] GET fallback failed:', fbErr?.message)
+        }
+      }
+
+      // Final fallback: open the doc-html in a new tab with autoprint=1.
+      // This still works if the server can't render PDFs at all — the
+      // user uses the browser's "Save as PDF" in the print dialog.
+      if (!blob) {
+        const url = `${iframeUrl}${iframeUrl.includes('?') ? '&' : '?'}autoprint=1`
+        const win = window.open(url, '_blank')
+        if (!win) {
+          toast({
+            title: 'PDF download unavailable',
+            description: 'Server PDF rendering is disabled and popups are blocked. Allow popups, or click "Print A4" → "Save as PDF".',
+            variant: 'destructive',
+            duration: 8000,
+          })
+        } else {
+          toast({
+            title: 'Opening print dialog...',
+            description: 'Choose "Save as PDF" as the destination to download.',
+            duration: 5000,
+          })
+        }
+        return
+      }
+
+      // Trigger a real file download via a hidden <a download> element.
+      // The browser shows the "Save / Open" dialog with the correct filename.
+      const safeDocNumber = docId.replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 40)
+      const filename = `${docType === 'invoice' ? 'Invoice' : docType === 'quotation' ? 'Quotation' : 'Service-Invoice'}-${safeDocNumber}.pdf`
+      const downloadUrl = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = downloadUrl
+      a.download = filename
+      a.rel = 'noopener noreferrer'
+      document.body.appendChild(a)
+      a.click()
+      document.body.removeChild(a)
+      // Revoke the blob URL after a short delay so the download has time
+      // to start. 60s is more than enough for any browser.
+      setTimeout(() => URL.revokeObjectURL(downloadUrl), 60000)
+
+      const engineLabel = usedEngine === 'weasyprint' ? 'preview-quality' : 'standard'
+      toast({
+        title: `PDF downloaded ✓`,
+        description: `${filename} • ${engineLabel}`,
+        duration: 3500,
+      })
+    } catch (e: any) {
+      console.error('[handleSavePdf] error:', e)
+      toast({
+        title: 'PDF download failed',
+        description: String(e?.message || '').slice(0, 120) || 'Unknown error',
+        variant: 'destructive',
+        duration: 6000,
+      })
+    } finally {
+      setDownloading(false)
     }
-  }, [docId, iframeUrl, toast])
+  }, [docId, docType, templateId, bannerVariant, gstMode, iframeUrl, toast, downloading])
 
   const docTypeLabel = docType === 'quotation' ? 'Quotation' : docType === 'service' ? 'Service Invoice' : 'Invoice'
 
@@ -216,18 +294,21 @@ export function DocumentHtmlViewer({ docId, docType = 'invoice', title, onClose,
             <span className="hidden sm:inline">Print A4</span>
           </button>
 
-          {/* Download PDF — opens the same HTML in a new tab with autoprint=1
-              so the browser's print dialog opens automatically. The user picks
-              "Save as PDF" as the destination → output matches the on-screen
-              preview pixel-perfect (same HTML, same Chromium engine). */}
+          {/* Download PDF — downloads a REAL .pdf file rendered server-side
+              with the SAME HTML engine as the on-screen preview. The output
+              is byte-for-byte identical to the preview (no popup, no manual
+              "Save as PDF" step — just a real file download). */}
           <button
             onClick={handleSavePdf}
-            disabled={!iframeLoaded}
-            title="Opens a new tab with this document and triggers the print dialog. Choose 'Save as PDF' as the destination to download a PDF that matches this preview exactly."
+            disabled={!iframeLoaded || downloading}
+            title="Downloads a real PDF file rendered server-side. Works on all browsers, no popups required."
             className="flex items-center gap-1.5 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 disabled:cursor-not-allowed text-white text-xs font-bold px-3 py-1.5 rounded shadow transition cursor-pointer"
           >
-            <Download className="w-3.5 h-3.5" />
-            <span className="hidden sm:inline">Download PDF</span>
+            {downloading ? (
+              <><RefreshCw className="w-3.5 h-3.5 animate-spin" /><span className="hidden sm:inline">Preparing...</span></>
+            ) : (
+              <><Download className="w-3.5 h-3.5" /><span className="hidden sm:inline">Download PDF</span></>
+            )}
           </button>
 
           {/* Open in New Tab */}

@@ -32,14 +32,33 @@ export function CustomerStatementsPanel() {
   const handlePrint = () => {
     if (!statement) return
     const html = buildStatementHtml(statement)
-    const w = window.open('', '_blank', 'noopener,noreferrer')
+    // v12.7 FIX: Previously used window.open('', '_blank', 'noopener,noreferrer')
+    // — `noopener` makes the parent window unable to access w.document, so the
+    // new tab stayed at about:blank and the print dialog never opened. The
+    // user saw a "Popup blocked" toast even when popups were allowed.
+    //
+    // Solution: build a Blob URL with the full HTML content and open THAT.
+    // No `noopener` flag, no document.write (which is deprecated and blocked
+    // by some browsers after cross-origin navigations). The browser opens a
+    // real document with our HTML, the auto-print script inside it fires,
+    // and the user gets the print dialog (with "Save as PDF" as a destination).
+    const blob = new Blob([html], { type: 'text/html;charset=utf-8' })
+    const blobUrl = URL.createObjectURL(blob)
+    const w = window.open(blobUrl, '_blank')
     if (!w) {
-      toast({ title: 'Popup blocked', description: 'Allow popups to print statement', variant: 'destructive' })
+      toast({
+        title: 'Popup blocked',
+        description: 'Allow popups for this site and click Print / PDF again.',
+        variant: 'destructive',
+        duration: 7000,
+      })
+      // Revoke the URL so we don't leak memory even if popup is blocked.
+      setTimeout(() => URL.revokeObjectURL(blobUrl), 60000)
       return
     }
-    w.document.write(html)
-    w.document.close()
-    setTimeout(() => w.print(), 500)
+    // Revoke the blob URL after 60s — the new tab has already loaded by then.
+    // The auto-print script inside the HTML handles opening the print dialog.
+    setTimeout(() => URL.revokeObjectURL(blobUrl), 60000)
   }
 
   return (
@@ -240,5 +259,19 @@ function buildStatementHtml(s: any): string {
       <tr style="background:#f1f5f9"><td colspan="5" style="font-weight:bold">Closing Balance</td><td style="text-align:right;font-weight:bold">Rs.${formatCurrency(s.closingBalance || 0)}</td></tr>
     </tbody>
   </table>
+  <script>
+    // v12.7: Auto-fire the print dialog after the page loads so the user
+    // gets "Save as PDF" as a destination without an extra click.
+    (function() {
+      function firePrint() {
+        try { window.print(); } catch (e) {}
+      }
+      if (document.readyState === 'complete') {
+        setTimeout(firePrint, 350);
+      } else {
+        window.addEventListener('load', function() { setTimeout(firePrint, 350); });
+      }
+    })();
+  </script>
 </body></html>`
 }

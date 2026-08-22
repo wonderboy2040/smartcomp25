@@ -58,7 +58,7 @@ export async function POST(req: NextRequest) {
     if (!check.allowed) return NextResponse.json({ error: 'Rate limited — too many writes, wait a moment' }, { status: 429 })
 
     const body = await req.json()
-    const { supplierIds, itemIds, allItems = false, isAuto = false } = body
+    const { supplierIds, itemIds, allItems = false, isAuto = false, customItems } = body
 
     if (!Array.isArray(supplierIds) || supplierIds.length === 0) {
       return NextResponse.json({ error: 'Select at least one supplier' }, { status: 400 })
@@ -75,8 +75,23 @@ export async function POST(req: NextRequest) {
     } else if (Array.isArray(itemIds) && itemIds.length > 0) {
       const allItemsList = await listRows<any>('Items')
       items = allItemsList.filter((i) => itemIds.includes(i.id))
-    } else {
-      return NextResponse.json({ error: 'Select items or choose all items' }, { status: 400 })
+    }
+
+    // v12.7: Append custom (manual-entry) items — products NOT in stock yet.
+    // These are stored on the enquiry's itemsJson with a synthetic id so the
+    // rate comparison + intelligence views can still group responses by item.
+    if (Array.isArray(customItems) && customItems.length > 0) {
+      for (const c of customItems) {
+        const name = String(c?.name || '').trim()
+        if (!name) continue
+        items.push({
+          id: `custom:${name.toLowerCase().replace(/\s+/g, '-')}`,
+          name,
+          sku: String(c?.sku || ''),
+          costPrice: 0,
+          isCustom: true,
+        })
+      }
     }
 
     if (items.length === 0) return NextResponse.json({ error: 'No items to enquire' }, { status: 400 })

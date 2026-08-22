@@ -20,7 +20,7 @@ import {
 } from '@/components/ui/table'
 import { useToast } from '@/hooks/use-toast'
 import { formatCurrency } from '@/lib/calc'
-import { MessageSquare, Send, Users, Package, RefreshCw, MessageCircle, Check, Calendar, Bot, Upload, TrendingUp, Award, ArrowDownRight, Brain, AlertTriangle } from 'lucide-react'
+import { MessageSquare, Send, Users, Package, RefreshCw, MessageCircle, Check, Calendar, Bot, Upload, TrendingUp, Award, ArrowDownRight, Brain, AlertTriangle, Plus, Trash2 } from 'lucide-react'
 
 export function WhatsAppPanel() {
   const { toast } = useToast()
@@ -98,6 +98,7 @@ export function WhatsAppPanel() {
     supplierIds: string[]
     itemIds: string[]
     allItems: boolean
+    customItems?: { name: string; sku?: string }[]
   }) => {
     try {
       const allSuppliers = suppliers || []
@@ -110,6 +111,24 @@ export function WhatsAppPanel() {
         selectedItems = allItems
       } else {
         selectedItems = allItems.filter((i) => payload.itemIds.includes(i.id))
+      }
+      // v12.7: Append custom (manual-entry) items to the enquiry.
+      // These are NOT in the Items sheet yet — they're products the user
+      // wants to enquire about for the first time. They get a synthetic id
+      // (`custom:<name>`) so the rate comparison + intelligence views can
+      // still group responses by item.
+      if (Array.isArray(payload.customItems) && payload.customItems.length > 0) {
+        for (const c of payload.customItems) {
+          const name = String(c?.name || '').trim()
+          if (!name) continue
+          selectedItems.push({
+            id: `custom:${name.toLowerCase().replace(/\s+/g, '-')}`,
+            name,
+            sku: String(c?.sku || ''),
+            costPrice: 0,
+            isCustom: true,
+          })
+        }
       }
       if (selectedItems.length === 0) {
         toast({ title: 'No items selected', variant: 'destructive' })
@@ -132,6 +151,7 @@ export function WhatsAppPanel() {
           supplierIds: payload.supplierIds,
           itemIds: payload.itemIds,
           allItems: payload.allItems,
+          customItems: payload.customItems,
         })
         const sent = res.results.filter((r: any) => r.sendStatus === 'sent').length
         const failed = res.results.filter((r: any) => r.sendStatus === 'failed').length
@@ -856,18 +876,25 @@ function SendEnquiryDialog({
   onOpenChange: (v: boolean) => void
   suppliers: any[]
   items: any[]
-  onSend: (payload: { supplierIds: string[]; itemIds: string[]; allItems: boolean }) => void
+  onSend: (payload: { supplierIds: string[]; itemIds: string[]; allItems: boolean; customItems?: { name: string; sku?: string }[] }) => void
   cloudApiOn: boolean
 }) {
   const [selectedSuppliers, setSelectedSuppliers] = useState<string[]>([])
   const [selectedItems, setSelectedItems] = useState<string[]>([])
   const [allItems, setAllItems] = useState(false)
   const [itemSearch, setItemSearch] = useState('')
+  // v12.7: Custom (manual) item entry — for products NOT in stock yet.
+  // The shop owner often wants to enquire about an item they haven't added
+  // to Stock yet (e.g. a new model the supplier just announced). Previously
+  // they had to first add the item to Stock, then come back to WhatsApp and
+  // select it. Now they can just type the name here.
+  const [customItems, setCustomItems] = useState<{ name: string; sku?: string }[]>([])
+  const [newCustomItem, setNewCustomItem] = useState({ name: '', sku: '' })
 
   const filteredItems = items.filter((i) => {
     if (!itemSearch) return true
     const q = itemSearch.toLowerCase()
-    return i.name.toLowerCase().includes(q) || i.sku.toLowerCase().includes(q)
+    return String(i?.name || '').toLowerCase().includes(q) || String(i?.sku || '').toLowerCase().includes(q)
   })
 
   const toggleSupplier = (id: string) => {
@@ -882,10 +909,33 @@ function SendEnquiryDialog({
     )
   }
 
+  const addCustomItem = () => {
+    const name = newCustomItem.name.trim()
+    if (!name) return
+    // Don't add duplicates (by name, case-insensitive)
+    const exists = customItems.some((c) => c.name.toLowerCase() === name.toLowerCase())
+    if (exists) {
+      return
+    }
+    setCustomItems([...customItems, { name, sku: newCustomItem.sku.trim() || undefined }])
+    setNewCustomItem({ name: '', sku: '' })
+  }
+
+  const removeCustomItem = (index: number) => {
+    setCustomItems(customItems.filter((_, i) => i !== index))
+  }
+
+  const hasItemsToSend = allItems || selectedItems.length > 0 || customItems.length > 0
+
   const handleSend = () => {
     if (selectedSuppliers.length === 0) return
-    if (!allItems && selectedItems.length === 0) return
-    onSend({ supplierIds: selectedSuppliers, itemIds: selectedItems, allItems })
+    if (!hasItemsToSend) return
+    onSend({
+      supplierIds: selectedSuppliers,
+      itemIds: selectedItems,
+      allItems,
+      customItems: customItems.length > 0 ? customItems : undefined,
+    })
   }
 
   return (
@@ -1000,11 +1050,74 @@ function SendEnquiryDialog({
           </div>
         </div>
 
+        {/* v12.7: Manual item entry — for products NOT in stock yet */}
+        {!allItems && (
+          <div className="border-2 border-blue-200 rounded-lg p-3 bg-blue-50/40 space-y-2">
+            <div className="flex items-center justify-between">
+              <Label className="text-sm flex items-center gap-1.5">
+                <Plus className="w-3.5 h-3.5" /> Add Custom Item (not in stock)
+              </Label>
+              {customItems.length > 0 && (
+                <Badge variant="outline" className="text-[10px] bg-blue-100 text-blue-700 border-blue-200">
+                  {customItems.length} custom
+                </Badge>
+              )}
+            </div>
+            <div className="grid grid-cols-12 gap-2">
+              <Input
+                placeholder="Item name (e.g., 1TB NVMe SSD)"
+                value={newCustomItem.name}
+                onChange={(e) => setNewCustomItem({ ...newCustomItem, name: e.target.value })}
+                onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); addCustomItem() } }}
+                className="col-span-7 h-9 text-sm bg-white"
+              />
+              <Input
+                placeholder="SKU (optional)"
+                value={newCustomItem.sku}
+                onChange={(e) => setNewCustomItem({ ...newCustomItem, sku: e.target.value })}
+                onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); addCustomItem() } }}
+                className="col-span-3 h-9 text-sm bg-white"
+              />
+              <Button
+                size="sm"
+                onClick={addCustomItem}
+                disabled={!newCustomItem.name.trim()}
+                className="col-span-2 h-9 bg-blue-600 hover:bg-blue-700 text-white"
+              >
+                <Plus className="w-3.5 h-3.5 mr-1" /> Add
+              </Button>
+            </div>
+            {customItems.length > 0 && (
+              <div className="space-y-1.5 max-h-32 overflow-y-auto">
+                {customItems.map((c, i) => (
+                  <div key={i} className="flex items-center gap-2 p-2 bg-white rounded-lg border border-slate-200">
+                    <Package className="w-3.5 h-3.5 text-blue-600 flex-shrink-0" />
+                    <div className="flex-1 min-w-0">
+                      <p className="text-xs font-medium truncate">{c.name}</p>
+                      {c.sku && <p className="text-[10px] text-slate-500">{c.sku}</p>}
+                    </div>
+                    <button
+                      onClick={() => removeCustomItem(i)}
+                      className="text-red-400 hover:text-red-600 p-1 rounded hover:bg-red-50 transition-colors flex-shrink-0"
+                      title="Remove"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+            <p className="text-[10px] text-slate-500">
+              💡 Use this when you want to enquire about a product you don&apos;t stock yet — e.g. a new model the supplier just announced.
+            </p>
+          </div>
+        )}
+
         <DialogFooter className="flex-col sm:flex-row gap-2">
           <Button variant="outline" onClick={() => onOpenChange(false)} className="w-full sm:w-auto">Cancel</Button>
           <Button
             onClick={handleSend}
-            disabled={selectedSuppliers.length === 0 || (!allItems && selectedItems.length === 0)}
+            disabled={selectedSuppliers.length === 0 || !hasItemsToSend}
             className="bg-green-600 hover:bg-green-700 w-full sm:w-auto"
           >
             <Send className="w-4 h-4 mr-1.5" /> {cloudApiOn ? 'Send Enquiries' : 'Generate Messages'}
