@@ -34,13 +34,13 @@ export { getAppsScriptUrl, getAppPin, isFirebaseMode } from '@/lib/runtime-confi
 // ===== CACHE: LRU with 60s TTL + 300 max =====
 type CacheEntry = { data: any; expires: number; hits: number }
 const cache = new Map<string, CacheEntry>()
-const CACHE_TTL = 60 * 1000
+const CACHE_TTL = 15 * 1000 // 15s — ultra-fast realtime sync (was 60s)
 const MAX_CACHE_SIZE = 300
 
 // ===== 5s in-memory execution cache + hash tracking =====
 type MemCacheEntry = { data: any; expires: number; hash: string }
 const quantumMemCache = new Map<string, MemCacheEntry>()
-const QUANTUM_MEM_TTL = 5 * 1000
+const QUANTUM_MEM_TTL = 2 * 1000 // 2s — ultra-fast realtime sync (was 5s)
 const lastDataHash = new Map<string, string>()
 const lastPullTime = new Map<string, number>()
 const deletedTracking = new Map<string, { id: string; expires: number }>()
@@ -262,7 +262,7 @@ function mergeWithCached(sheet: string, id: string, row: any): any {
 const reconcileTimers = new Map<string, ReturnType<typeof setTimeout>>()
 function reconcileDelayMs(): number {
   const v = Number(process.env.SMARTCOMP_RECONCILE_DELAY_MS)
-  return Number.isFinite(v) && v > 0 ? v : 1200
+  return Number.isFinite(v) && v > 0 ? v : 400 // 400ms — near-instant write-through (was 1200ms)
 }
 function scheduleReconcile(sheet: string) {
   const existing = reconcileTimers.get(sheet)

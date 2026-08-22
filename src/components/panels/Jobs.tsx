@@ -390,7 +390,7 @@ function NewJobDialog({ open, onOpenChange, editing, onSaved }: { open: boolean,
   )
 }
 
-function JobDetailDialog({ job, onClose, onUpdated, onOpenInvoice, onOpenWhatsApp }: { job: any, onClose: () => void, onUpdated: () => void, onOpenInvoice: (id: string) => void, onOpenWhatsApp: (id: string) => void, onEditInfo: (j: any) => void }) {
+function JobDetailDialog({ job, onClose, onUpdated, onOpenInvoice, onOpenWhatsApp, onEditInfo }: { job: any, onClose: () => void, onUpdated: () => void, onOpenInvoice: (id: string) => void, onOpenWhatsApp: (id: string) => void, onEditInfo: (j: any) => void }) {
   const { toast } = useToast()
   const [partsUsed, setPartsUsed] = useState<any[]>(safeJsonParse<any[]>(job?.partsUsedJson || job?.partsUsed, []))
   const [finalAmount, setFinalAmount] = useState(Number(job?.finalAmount) || 0)
@@ -826,6 +826,7 @@ function JobDetailDialog({ job, onClose, onUpdated, onOpenInvoice, onOpenWhatsAp
             {saving ? <RefreshCw className="w-4 h-4 mr-2 animate-spin" /> : <CheckCircle2 className="w-4 h-4 mr-2" />}
             Save Parts & Charges
           </Button>
+          <Button variant="outline" onClick={() => onEditInfo(job)} className="bg-amber-50 hover:bg-amber-100 text-amber-700 border-amber-200 font-semibold h-10"><ClipboardList className="w-4 h-4 mr-2" /> ✏️ Edit Info</Button>
           <Button variant="outline" onClick={() => onOpenWhatsApp(job.id)} className="bg-green-50 hover:bg-green-100 text-green-700 border-green-200 font-semibold h-10"><MessageSquare className="w-4 h-4 mr-2" /> WhatsApp</Button>
           <Button variant="outline" onClick={() => onOpenInvoice(job.id)} className="bg-purple-50 hover:bg-purple-100 text-purple-700 border-purple-200 font-semibold h-10"><FileText className="w-4 h-4 mr-2" /> Professional Invoice</Button>
           <Button variant="outline" onClick={onClose} className="ml-auto bg-white h-10">Close</Button>

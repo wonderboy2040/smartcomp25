@@ -398,7 +398,7 @@ if (typeof window !== 'undefined') {
 // ===== QUANTUM CACHE (like index.html PWA) =====
 type QuantumMemEntry = { data: any; expires: number; hash: string }
 const quantumMemCache = new Map<string, QuantumMemEntry>()
-const QUANTUM_MEM_TTL = 5 * 1000 // 5s like code.gs LIST_CACHE_MEM_TTL
+const QUANTUM_MEM_TTL = 2 * 1000 // 2s — ultra-fast realtime sync (was 5s)
 const lastDataHash = new Map<string, string>() // like lastCloudDataHash in index.html
 const lastPullTime = new Map<string, number>() // debounce like index.html
 const recentlyDeletedJobs = new Set<string>()
@@ -576,7 +576,7 @@ function setQuantumMem(key: string, data: any): string {
   return hash
 }
 
-const STALE_MS = 180 * 1000 // 180s — longer cache = fewer refetches = faster perceived load
+const STALE_MS = 30 * 1000 // 30s — ultra-fast realtime sync (was 180s) — ensures background refresh within 30s of any change
 const RETRY_ATTEMPTS = 1
 const RETRY_DELAY = 400
 // Firebase is in-process and returns in <200ms; 8s/6s is plenty even with
@@ -948,6 +948,8 @@ export async function apiPost(url: string, body: ApiBody) {
 
     clearPendingCreate(base, tempId)
     commitCreatedRow(base, tempId, data)
+    // REALTIME SYNC: Force immediate refetch so cloud data is up-to-date within ~500ms
+    setTimeout(() => { invalidate(base); invalidate('/api/dashboard') }, 300)
     return data
   } catch (e) {
     clearPendingCreate(base, tempId)
@@ -1168,6 +1170,8 @@ export async function apiPut(url: string, body: ApiBody) {
         prev ? prev.map((x) => (String(x?.id) === String(updatedId) ? { ...x, ...entity, _pending: false } : x)) : prev || []
       )
     }
+    // REALTIME SYNC: Force immediate refetch so cloud data is up-to-date within ~500ms
+    setTimeout(() => { invalidate(listUrl); invalidate('/api/dashboard') }, 300)
     return data
   } catch (e) {
     // Rollback on failure
@@ -1235,6 +1239,8 @@ export async function apiDelete(url: string) {
     clearTimeout(timeout)
     const data = await r.json().catch(() => ({}))
     if (!r.ok) throw new Error(data.error || 'Failed to delete')
+    // REALTIME SYNC: Force immediate refetch so cloud data is up-to-date within ~500ms
+    setTimeout(() => { invalidate(listUrl); invalidate('/api/dashboard') }, 300)
     return data
   } catch (e) {
     // Rollback on failure — restore cache snapshot AND untrack the deleted ID
