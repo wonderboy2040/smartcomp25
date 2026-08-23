@@ -78,9 +78,30 @@ services:
       # Install on Render: pip install weasyprint
       - key: WEASYPRINT_BIN
         sync: false
+      # v12.8 OPTIONAL: Google Drive daily auto-backup. Set these to enable
+      # daily automatic JSON backup uploads to your Google Drive folder.
+      # Create a Service Account in Google Cloud Console → enable Drive API →
+      # share the target folder with the service account's email → set these:
+      - key: GDRIVE_CLIENT_EMAIL
+        sync: false
+      - key: GDRIVE_PRIVATE_KEY
+        sync: false
+      - key: GDRIVE_FOLDER_ID
+        sync: false
+      - key: GDRIVE_RETENTION_DAYS
+        value: "30"
       # OPTIONAL: public base URL of the deployed app (used in track URLs etc.)
       - key: NEXT_PUBLIC_BASE_URL
         sync: false
+
+# v12.8: Daily auto-backup cron (Render Cron Job).
+# Fires at 2:30 AM IST (20:30 UTC) every day, calls /api/cron/backup.
+# Requires CRON_SECRET + GDRIVE_* env vars on the web service.
+cronJobs:
+  - name: daily-backup
+    schedule: "30 20 * * *"  # 2:30 AM IST = 20:30 UTC
+    command: "curl -X POST -H \"Authorization: Bearer $CRON_SECRET\" $RENDER_EXTERNAL_URL/api/cron/backup"
+    instanceType: free
 
 # Note: No database service needed!
 # All data is stored in your Firebase Firestore database.

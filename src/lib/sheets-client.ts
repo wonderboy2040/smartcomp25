@@ -1206,3 +1206,343 @@ export async function createInvoiceUltra(data: any): Promise<any> {
 export async function createQuotationUltra(data: any): Promise<any> {
   return createQuotationFull(data)
 }
+
+// ============================================================================
+// v12.8 ATOMIC OPERATIONS — Firestore batch wrappers for multi-write flows
+// ============================================================================
+// These wrappers fix the silent-corruption bugs flagged in the v12.8 audit:
+//   - Quotation → Invoice conversion was 5 separate writes with `.catch(() => {})`
+//     on the payment create — partial failures left the invoice "paid" with no
+//     payment row, stock not deducted, customer credit not adjusted.
+//   - Invoice DELETE used `Promise.all(restoreOps)` THEN deleted the invoice —
+//     if the invoice delete failed, restores were already committed.
+//
+// All wrappers below commit a single Firestore batch — either ALL writes
+// succeed or NONE do. There is no partial state.
+// ============================================================================
+
+/**
+ * Atomically convert a quotation into an invoice.
+ *
+ * Single Firestore batch performs all 5 writes:
+ *   1. Create the invoice row
+ *   2. Create the payment row (if amountPaid > 0) — NO MORE silent .catch
+ *   3. Mark the quotation as `status: 'converted'`
+ *   4. Deduct stock for each line item (using FieldValue.increment for atomicity)
+ *   5. Adjust customer credit (only the unpaid portion)
+ *
+ * If ANY step fails, the entire batch is rolled back — no orphan invoice,
+ * no missing payment, no undeducted stock.
+ */
+export async function convertQuotationToInvoice(opts: {
+  quotationId: string
+  quotation: any
+  invoiceNumber: string
+  invoiceId: string
+  invoiceRow: any
+  paymentRow?: any | null  // null = no payment
+  stockUpdates?: { id: string; deductQty: number }[]
+  customerUpdate?: { id: string; newCreditBalance: number } | null
+}): Promise<{ success: true; invoiceId: string; invoiceNumber: string }> {
+  const { quotationId, quotation, invoiceNumber, invoiceId, invoiceRow, paymentRow, stockUpdates, customerUpdate } = opts
+
+  const db = await getDb()
+  if (!db) throw new Error(getInitError() || 'Firebase not initialized')
+
+  // v12.8: Use Firestore FieldValue.increment for stock — atomic, no race.
+  // Lazy-import to keep firebase-admin out of the route's cold-start path.
+  const adminFirestore = await import('firebase-admin/firestore')
+  const increment = (adminFirestore as any).FieldValue.increment
+
+  const batch = db.batch()
+
+  // 1. Create invoice
+  batch.set(db.collection('Invoices').doc(invoiceId), invoiceRow)
+
+  // 2. Create payment (if any) — NO MORE silent .catch
+  if (paymentRow && paymentRow.id) {
+    batch.set(db.collection('Payments').doc(String(paymentRow.id)), paymentRow)
+  }
+
+  // 3. Mark quotation converted
+  batch.set(db.collection('Quotations').doc(quotationId), {
+    status: 'converted',
+    convertedToInvoiceId: invoiceId,
+    updatedAt: new Date().toISOString(),
+  }, { merge: true })
+
+  // 4. Stock deduction — atomic via FieldValue.increment
+  if (stockUpdates && stockUpdates.length > 0) {
+    for (const su of stockUpdates) {
+      if (!su.id || !su.deductQty) continue
+      batch.set(db.collection('Items').doc(String(su.id)), {
+        quantity: increment(-Math.abs(su.deductQty)),
+        updatedAt: new Date().toISOString(),
+      }, { merge: true })
+    }
+  }
+
+  // 5. Customer credit adjustment
+  if (customerUpdate && customerUpdate.id) {
+    batch.set(db.collection('Customers').doc(String(customerUpdate.id)), {
+      creditBalance: Number(customerUpdate.newCreditBalance) || 0,
+      updatedAt: new Date().toISOString(),
+    }, { merge: true })
+  }
+
+  // Commit — atomic. All writes succeed or all fail.
+  await batch.commit()
+
+  // Patch the in-memory cache so the UI updates instantly without a refetch.
+  patchListCache('Invoices', invoiceRow, 'create')
+  if (paymentRow && paymentRow.id) patchListCache('Payments', paymentRow, 'create')
+  patchListCache('Quotations', {
+    id: quotationId,
+    status: 'converted',
+    convertedToInvoiceId: invoiceId,
+  }, 'update')
+  if (stockUpdates && stockUpdates.length > 0) {
+    invalidateCache('Items')
+  }
+  if (customerUpdate && customerUpdate.id) {
+    invalidateCache('Customers')
+  }
+  invalidateAggregates()
+  scheduleReconcile('Invoices')
+  scheduleReconcile('Quotations')
+  if (paymentRow) scheduleReconcile('Payments')
+
+  return { success: true, invoiceId, invoiceNumber }
+}
+
+/**
+ * Atomically delete an invoice + restore stock + adjust customer credit +
+ * delete associated payments.
+ *
+ * Single Firestore batch:
+ *   1. Soft-delete the invoice
+ *   2. Restore stock via FieldValue.increment(+qty) for each item
+ *   3. Reduce customer credit by the invoice's amountDue
+ *   4. Soft-delete all payments linked to this invoice
+ *
+ * If ANY step fails, the entire batch is rolled back — no half-restored state.
+ */
+export async function deleteInvoiceAtomic(opts: {
+  invoiceId: string
+  invoice: any
+  stockRestores?: { id: string; restoreQty: number }[]
+  customerUpdate?: { id: string; newCreditBalance: number } | null
+  paymentIdsToDelete?: string[]
+}): Promise<{ success: true; restoredStock: number; deletedPayments: number }> {
+  const { invoiceId, invoice, stockRestores, customerUpdate, paymentIdsToDelete } = opts
+
+  const db = await getDb()
+  if (!db) throw new Error(getInitError() || 'Firebase not initialized')
+
+  const adminFirestore = await import('firebase-admin/firestore')
+  const increment = (adminFirestore as any).FieldValue.increment
+
+  const batch = db.batch()
+
+  // 1. Soft-delete the invoice FIRST (so a partial failure leaves it deleted)
+  batch.set(db.collection('Invoices').doc(invoiceId), {
+    deleted: true,
+    updatedAt: new Date().toISOString(),
+  }, { merge: true })
+
+  // 2. Restore stock atomically
+  let restoredStock = 0
+  if (stockRestores && stockRestores.length > 0) {
+    for (const sr of stockRestores) {
+      if (!sr.id || !sr.restoreQty) continue
+      batch.set(db.collection('Items').doc(String(sr.id)), {
+        quantity: increment(Math.abs(sr.restoreQty)),
+        updatedAt: new Date().toISOString(),
+      }, { merge: true })
+      restoredStock++
+    }
+  }
+
+  // 3. Customer credit adjustment
+  if (customerUpdate && customerUpdate.id) {
+    batch.set(db.collection('Customers').doc(String(customerUpdate.id)), {
+      creditBalance: Number(customerUpdate.newCreditBalance) || 0,
+      updatedAt: new Date().toISOString(),
+    }, { merge: true })
+  }
+
+  // 4. Soft-delete payments
+  let deletedPayments = 0
+  if (paymentIdsToDelete && paymentIdsToDelete.length > 0) {
+    for (const pid of paymentIdsToDelete) {
+      batch.set(db.collection('Payments').doc(String(pid)), {
+        deleted: true,
+        updatedAt: new Date().toISOString(),
+      }, { merge: true })
+      deletedPayments++
+    }
+  }
+
+  await batch.commit()
+
+  // Patch cache
+  patchListCache('Invoices', { id: invoiceId, deleted: true }, 'delete')
+  if (stockRestores && stockRestores.length > 0) invalidateCache('Items')
+  if (customerUpdate && customerUpdate.id) invalidateCache('Customers')
+  if (paymentIdsToDelete && paymentIdsToDelete.length > 0) invalidateCache('Payments')
+  invalidateAggregates()
+  scheduleReconcile('Invoices')
+  if (paymentIdsToDelete && paymentIdsToDelete.length > 0) scheduleReconcile('Payments')
+
+  return { success: true, restoredStock, deletedPayments }
+}
+
+// ============================================================================
+// BACKUP & RESTORE (v12.8) — full Firestore export/import for Google Drive
+// ============================================================================
+
+/**
+ * Export ALL collections to a single JSON object. Used by:
+ *   - /api/backup GET (manual download)
+ *   - /api/backup POST (scheduled Google Drive upload)
+ *   - /api/cron/backup (daily auto-backup)
+ *
+ * The result is a self-contained JSON blob that can be restored via
+ * `restoreAllData(json)`. Each sheet's rows are included with their
+ * full document data (including soft-deleted rows).
+ */
+export async function exportAllDataForBackup(): Promise<{
+  version: string
+  exportedAt: string
+  backend: string
+  sheets: Record<string, { sheet: string; data: any[]; exportedAt: string }>
+  totals: Record<string, number>
+}> {
+  const sheets = [
+    'Shop', 'Items', 'Customers', 'Suppliers', 'Invoices', 'Quotations',
+    'Payments', 'Enquiries', 'Jobs', 'ServicePayments', 'Expenses',
+    'ItemSerials', 'PersonalExpenditure', 'Campaigns', 'AMCContracts',
+    'PurchaseOrders', 'SupplierPayments', 'StockAdjustments',
+    'ExpenseBudgets', 'GstReconciliations', 'Settings', 'Engineers',
+  ]
+  const batch = await getBatchRows(sheets)
+  const totals: Record<string, number> = {}
+  for (const sheet of sheets) {
+    const rows = (batch as any)[sheet] || []
+    totals[sheet] = Array.isArray(rows) ? rows.length : 0
+  }
+  return {
+    version: '12.8',
+    exportedAt: new Date().toISOString(),
+    backend: 'firestore',
+    sheets: batch as any,
+    totals,
+  }
+}
+
+/**
+ * Restore data from a backup JSON. Two modes:
+ *   - `mode: 'merge'` (default): only inserts rows whose id doesn't already exist.
+ *     Existing rows are left untouched. Safe — never overwrites newer data.
+ *   - `mode: 'overwrite'`: replaces all existing rows with the backup's version.
+ *     Destructive — use only when the user explicitly confirms.
+ *
+ * Returns a summary of inserted / skipped / overwritten counts per sheet.
+ */
+export async function restoreAllData(
+  backup: any,
+  mode: 'merge' | 'overwrite' = 'merge',
+): Promise<{
+  summary: Record<string, { inserted: number; skipped: number; overwritten: number }>
+  totalInserted: number
+  totalSkipped: number
+  totalOverwritten: number
+}> {
+  if (!backup || typeof backup !== 'object') {
+    throw new Error('Invalid backup format — expected an object')
+  }
+  const sheets = backup.sheets || backup
+  if (!sheets || typeof sheets !== 'object') {
+    throw new Error('Invalid backup format — missing `sheets` field')
+  }
+
+  const db = await getDb()
+  if (!db) throw new Error(getInitError() || 'Firebase not initialized')
+
+  const summary: Record<string, { inserted: number; skipped: number; overwritten: number }> = {}
+  let totalInserted = 0
+  let totalSkipped = 0
+  let totalOverwritten = 0
+
+  for (const [sheetName, sheetData] of Object.entries(sheets)) {
+    const rows = (sheetData as any)?.data || (sheetData as any) || []
+    if (!Array.isArray(rows)) {
+      summary[sheetName] = { inserted: 0, skipped: 0, overwritten: 0 }
+      continue
+    }
+
+    summary[sheetName] = { inserted: 0, skipped: 0, overwritten: 0 }
+
+    // For overwrite mode, fetch existing IDs once so we can report overwrites.
+    let existingIds: Set<string> | null = null
+    if (mode === 'overwrite') {
+      try {
+        const existing = await listRows<any>(sheetName, { useCache: false, includeDeleted: true })
+        existingIds = new Set(existing.map((r) => String(r.id)))
+      } catch {
+        existingIds = new Set()
+      }
+    }
+
+    // Batch the writes — Firestore allows up to 500 ops per batch.
+    let batch = db.batch()
+    let opsInBatch = 0
+    for (const row of rows) {
+      if (!row || !row.id) continue
+      const rowId = String(row.id)
+
+      if (mode === 'merge') {
+        // For merge mode, check if the row already exists.
+        // To avoid an extra read per row, we use create-or-merge semantics:
+        // we set with merge:true so existing fields are preserved. But we
+        // need to know if it existed. To keep this O(1) per row, we trust
+        // the user's choice: merge mode = only set if not present.
+        // For correctness, we DO read each row.
+        try {
+          const existing = await db.collection(sheetName).doc(rowId).get()
+          if (existing.exists) {
+            summary[sheetName].skipped++
+            totalSkipped++
+            continue
+          }
+        } catch {
+          // If read fails, treat as not-existing and proceed to insert.
+        }
+      } else if (mode === 'overwrite' && existingIds && existingIds.has(rowId)) {
+        summary[sheetName].overwritten++
+        totalOverwritten++
+      }
+
+      batch.set(db.collection(sheetName).doc(rowId), row, { merge: mode === 'overwrite' })
+      summary[sheetName].inserted++
+      totalInserted++
+      opsInBatch++
+
+      if (opsInBatch >= 450) {
+        await batch.commit()
+        batch = db.batch()
+        opsInBatch = 0
+      }
+    }
+    if (opsInBatch > 0) {
+      await batch.commit()
+    }
+
+    // Invalidate the cache for this sheet so the next read fetches fresh data.
+    invalidateCache(sheetName)
+  }
+
+  invalidateAggregates()
+  return { summary, totalInserted, totalSkipped, totalOverwritten }
+}
+

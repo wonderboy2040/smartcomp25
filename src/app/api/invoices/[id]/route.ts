@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getRow, deleteRow, updateRow, createRow, listRows, bulkUpdate } from '@/lib/sheets-client'
+import { getRow, deleteRow, updateRow, createRow, listRows, bulkUpdate, deleteInvoiceAtomic } from '@/lib/sheets-client'
 import { computeInvoice } from '@/lib/calc'
 import { safeJsonParse } from '@/lib/utils'
 
@@ -225,70 +225,62 @@ export async function DELETE(_req: NextRequest, { params }: { params: Promise<{ 
     const invoice = await getRow<any>('Invoices', id)
     if (!invoice) return NextResponse.json({ error: 'Not found' }, { status: 404 })
 
-    // PERFORMANCE: Parallel operations — restore stock, credit, and delete payments
+    // v12.8: ATOMIC delete — all 4 operations (soft-delete invoice, restore
+    // stock, reduce customer credit, delete payments) commit in a single
+    // Firestore batch. Either ALL succeed or NONE do. Previously the code
+    // did `Promise.all(restoreOps)` THEN deleted the invoice — if the
+    // invoice delete failed, restores were already committed, leaving the
+    // books inconsistent (stock restored + credit reduced + payments gone,
+    // but invoice still showing as unpaid).
     const items = safeJsonParse<any[]>(invoice.itemsJson, [])
 
-    // Batch stock restore via bulkUpdate
+    // Build stock restore list
     const uniqueItems = new Map<string, number>()
     for (const item of items) {
       if (item.itemId) {
         uniqueItems.set(String(item.itemId), (uniqueItems.get(String(item.itemId)) || 0) + (Number(item.quantity) || 0))
       }
     }
+    const stockRestores: { id: string; restoreQty: number }[] = []
+    for (const [itemId, qty] of uniqueItems.entries()) {
+      stockRestores.push({ id: itemId, restoreQty: qty })
+    }
 
-    const restoreOps: Promise<any>[] = []
-
-    // Stock restore
-    if (uniqueItems.size > 0) {
-      const itemIds = Array.from(uniqueItems.keys())
-      const restoreStockOp = (async () => {
-        const dbItems = await Promise.all(itemIds.map((itemId) => getRow<any>('Items', itemId)))
-        const stockUpdates: { id: string; data: any }[] = []
-        for (let i = 0; i < itemIds.length; i++) {
-          const dbItem = dbItems[i]
-          if (dbItem) {
-            stockUpdates.push({
-              id: itemIds[i],
-              data: { quantity: (Number(dbItem.quantity) || 0) + (uniqueItems.get(itemIds[i]) || 0) },
-            })
-          }
+    // Build customer credit update
+    let customerUpdate: { id: string; newCreditBalance: number } | null = null
+    if (Number(invoice.amountDue) > 0 && invoice.customerId) {
+      const customer = await getRow<any>('Customers', String(invoice.customerId)).catch(() => null)
+      if (customer) {
+        const currentCredit = Number(customer.creditBalance) || 0
+        customerUpdate = {
+          id: String(invoice.customerId),
+          newCreditBalance: Math.max(0, currentCredit - Number(invoice.amountDue)),
         }
-        if (stockUpdates.length > 0) await bulkUpdate('Items', stockUpdates)
-      })()
-      restoreOps.push(restoreStockOp)
+      }
     }
 
-    // Restore customer credit balance
-    if (Number(invoice.amountDue) > 0) {
-      restoreOps.push(
-        (async () => {
-          const customer = await getRow<any>('Customers', String(invoice.customerId || ''))
-          if (customer) {
-            const currentCredit = Number(customer.creditBalance) || 0
-            await updateRow('Customers', String(customer.id), {
-              creditBalance: Math.max(0, currentCredit - Number(invoice.amountDue)),
-            })
-          }
-        })()
-      )
-    }
+    // Find payment IDs to soft-delete
+    let paymentIdsToDelete: string[] = []
+    const payments = await listRows<any>('Payments').catch(() => [])
+    paymentIdsToDelete = payments
+      .filter((p) => String(p.invoiceId || '') === String(id))
+      .map((p) => String(p.id))
+      .filter(Boolean)
 
-    // Delete payments for this invoice
-    restoreOps.push(
-      (async () => {
-        const payments = await listRows<any>('Payments')
-        const invoicePayments = payments.filter((p) => p.invoiceId === id)
-        await Promise.all(invoicePayments.map((p) => deleteRow('Payments', String(p.id))))
-      })()
-    )
+    // ATOMIC commit
+    const result = await deleteInvoiceAtomic({
+      invoiceId: id,
+      invoice,
+      stockRestores: stockRestores.length > 0 ? stockRestores : undefined,
+      customerUpdate,
+      paymentIdsToDelete: paymentIdsToDelete.length > 0 ? paymentIdsToDelete : undefined,
+    })
 
-    // Run all restore operations in parallel
-    await Promise.all(restoreOps)
-
-    // Delete the invoice itself
-    await deleteRow('Invoices', id)
-
-    return NextResponse.json({ success: true })
+    return NextResponse.json({
+      success: true,
+      restoredStock: result.restoredStock,
+      deletedPayments: result.deletedPayments,
+    })
   } catch (e: any) {
     return NextResponse.json({ error: e?.message }, { status: 500 })
   }

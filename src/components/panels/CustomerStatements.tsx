@@ -200,12 +200,22 @@ export function CustomerStatementsPanel() {
   )
 }
 
+function escapeHtml(s: any): string {
+  if (s === null || s === undefined) return ''
+  return String(s)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;')
+}
+
 function buildStatementHtml(s: any): string {
   const rows = (s.ledger || []).map((e: any) => `
     <tr>
-      <td>${new Date(e.date).toLocaleDateString('en-IN')}</td>
-      <td>${e.type}</td>
-      <td>${e.description}</td>
+      <td>${escapeHtml(new Date(e.date).toLocaleDateString('en-IN'))}</td>
+      <td>${escapeHtml(e.type)}</td>
+      <td>${escapeHtml(e.description)}</td>
       <td style="text-align:right">${e.debit > 0 ? formatCurrency(e.debit) : '-'}</td>
       <td style="text-align:right">${e.credit > 0 ? formatCurrency(e.credit) : '-'}</td>
       <td style="text-align:right;font-weight:bold">${formatCurrency(e.balance)}</td>
@@ -213,7 +223,7 @@ function buildStatementHtml(s: any): string {
   `).join('')
 
   return `<!DOCTYPE html>
-<html><head><meta charset="UTF-8"><title>Statement — ${s.customer?.name}</title>
+<html><head><meta charset="UTF-8"><title>Statement — ${escapeHtml(s.customer?.name)}</title>
 <style>
   body { font-family: Arial, sans-serif; padding: 20px; color: #1e293b; }
   h1 { font-size: 18px; margin: 0 0 5px; }
@@ -236,14 +246,14 @@ function buildStatementHtml(s: any): string {
       <p style="font-size:11px;color:#64748b">Customer Account Statement</p>
     </div>
     <div style="text-align:right;font-size:11px">
-      Period: ${s.period?.from} to ${s.period?.to}<br>
-      Generated: ${new Date().toLocaleString('en-IN')}
+      Period: ${escapeHtml(s.period?.from)} to ${escapeHtml(s.period?.to)}<br>
+      Generated: ${escapeHtml(new Date().toLocaleString('en-IN'))}
     </div>
   </div>
   <div class="customer">
-    <strong>${s.customer?.name}</strong><br>
-    ${s.customer?.phone || ''} ${s.customer?.email ? '• ' + s.customer.email : ''}<br>
-    ${s.customer?.address || ''} ${s.customer?.gstNumber ? '• GST: ' + s.customer.gstNumber : ''}
+    <strong>${escapeHtml(s.customer?.name)}</strong><br>
+    ${escapeHtml(s.customer?.phone || '')} ${s.customer?.email ? '• ' + escapeHtml(s.customer.email) : ''}<br>
+    ${escapeHtml(s.customer?.address || '')} ${s.customer?.gstNumber ? '• GST: ' + escapeHtml(s.customer.gstNumber) : ''}
   </div>
   <div class="summary">
     <div class="summary-card"><div class="label">Opening Balance</div><div class="value" style="color:#2563eb">Rs.${formatCurrency(s.openingBalance || 0)}</div></div>

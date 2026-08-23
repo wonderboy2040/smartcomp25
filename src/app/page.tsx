@@ -9,7 +9,7 @@ import { useTheme } from '@/lib/theme-context'
 import { PdfPreviewProvider } from '@/lib/preview-context'
 import { PanelErrorBoundary } from '@/components/PanelErrorBoundary'
 import { DashboardView } from '@/components/panels/Dashboard'
-import { LayoutDashboard, Package, FileText, FileCheck2, Users, Building2, Wallet, MessageSquare, Settings, Store, Menu, X, Loader2, Wrench, LogOut, Receipt, BarChart3, Boxes, PiggyBank, FileSpreadsheet, Megaphone, ShieldAlert, FileSignature, Sun, Moon, Zap, Wifi, ShieldCheck, Sparkles, Brain, Command, BrainCircuit, Workflow, PackageCheck, Printer, ClipboardList, Target, FileBarChart, UserCog } from 'lucide-react'
+import { LayoutDashboard, Package, FileText, FileCheck2, Users, Building2, Wallet, MessageSquare, Settings, Store, Menu, X, Loader2, Wrench, LogOut, Receipt, BarChart3, Boxes, PiggyBank, FileSpreadsheet, Megaphone, ShieldAlert, FileSignature, Sun, Moon, Zap, Wifi, ShieldCheck, Sparkles, Brain, Command, BrainCircuit, Workflow, PackageCheck, Printer, ClipboardList, Target, FileBarChart, UserCog, Database } from 'lucide-react'
 
 // ===== DYNAMIC IMPORTS FOR HEAVY PANELS =====
 const StockPanel = lazy(() => import('@/components/panels/Stock').then(m => ({ default: m.StockPanel })))
@@ -41,6 +41,7 @@ const SupplierPaymentsPanel = lazy(() => import('@/components/panels/SupplierPay
 const StockAdjustmentsPanel = lazy(() => import('@/components/panels/StockAdjustments').then(m => ({ default: m.StockAdjustmentsPanel })))
 const ExpenseBudgetsPanel = lazy(() => import('@/components/panels/ExpenseBudgets').then(m => ({ default: m.ExpenseBudgetsPanel })))
 const CustomerStatementsPanel = lazy(() => import('@/components/panels/CustomerStatements').then(m => ({ default: m.CustomerStatementsPanel })))
+const BackupPanel = lazy(() => import('@/components/panels/Backup').then(m => ({ default: m.BackupPanel })))
 const BarcodeLabelsPanel = lazy(() => import('@/components/panels/BarcodeLabels').then(m => ({ default: m.BarcodeLabelsPanel })))
 const GstReconciliationPanel = lazy(() => import('@/components/panels/GstReconciliation').then(m => ({ default: m.GstReconciliationPanel })))
 
@@ -67,6 +68,7 @@ const NAV_ITEMS = [
   { id: 'stockadjustments', label: 'Stock Adjustments', icon: ClipboardList, color: 'text-cyan-600' },
   { id: 'barcodelabels', label: 'Barcode Labels', icon: Printer, color: 'text-teal-600' },
   { id: 'customerstatements', label: 'Customer Statements', icon: FileBarChart, color: 'text-indigo-600' },
+  { id: 'backup', label: 'Backup & Restore', icon: Database, color: 'text-emerald-600' },
   { id: 'campaigns', label: 'Campaigns', icon: Megaphone, color: 'text-green-600' },
   { id: 'credit', label: 'Credit Control', icon: ShieldAlert, color: 'text-red-600' },
   { id: 'financials', label: 'Financials (P&L)', icon: FileSpreadsheet, color: 'text-indigo-600' },
@@ -608,6 +610,9 @@ function HomeInner() {
             </PanelBoundary>
             <PanelBoundary active={active} id="customerstatements" mounted={mountedPanels.has('customerstatements')}>
               <CustomerStatementsPanel />
+            </PanelBoundary>
+            <PanelBoundary active={active} id="backup" mounted={mountedPanels.has('backup')}>
+              <BackupPanel />
             </PanelBoundary>
             <PanelBoundary active={active} id="campaigns" mounted={mountedPanels.has('campaigns')}>
               <CampaignsPanel />

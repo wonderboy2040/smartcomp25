@@ -62,6 +62,7 @@ const PUBLIC_PATHS = [
   '/api/whatsapp/webhook',
   '/api/cron/auto-enquiry',
   '/api/cron/amc',
+  '/api/cron/backup',
   '/api/log-error',
   '/track',
   '/api/track',

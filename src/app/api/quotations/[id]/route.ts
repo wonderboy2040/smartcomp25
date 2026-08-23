@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getRow, deleteRow, updateRow, createRow, listRows, bulkUpdate } from '@/lib/sheets-client'
+import { getRow, deleteRow, updateRow, createRow, listRows, bulkUpdate, convertQuotationToInvoice } from '@/lib/sheets-client'
 import { computeInvoice, nextInvoiceNumber, type LineItem } from '@/lib/calc'
 import { safeJsonParse } from '@/lib/utils'
 
@@ -152,14 +152,21 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       const existingInvoices = await listRows<any>('Invoices')
       const number = await nextInvoiceNumber(existingInvoices.map((i) => ({ number: i.number })))
 
-      // Create invoice
-      const invoice = await createRow('Invoices', {
+      // v12.8: Build the invoice + payment + stock + credit updates, then
+      // commit them all in a single Firestore batch via convertQuotationToInvoice.
+      // This fixes the silent-corruption bug where the old code did 5 separate
+      // writes with `.catch(() => {})` on the payment create — partial failures
+      // left the invoice "paid" with no payment row, stock not deducted, etc.
+      const invoiceId = `inv_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`
+      const now = new Date().toISOString()
+      const invoiceRow: any = {
+        id: invoiceId,
         number,
         customerId: String(q.customerId || ''),
         customerName: String(q.customerName || ''),
         customerPhone: String(q.customerPhone || ''),
         customerGstin: String(q.customerGstin || ''),
-        date: new Date().toISOString(),
+        date: now,
         itemsJson: q.itemsJson,
         subtotal: calc.subtotal,
         gstAmount: calc.gstAmount,
@@ -176,25 +183,27 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
         notes: String(q.notes || ''),
         template: String(body?.template || q.template || 'tally-classic'),
         gstMode: body?.gstMode === 'non-gst' ? 'non-gst' : (String(q.gstMode || 'gst')),
-      })
-
-      // v11.2: record the payment in the Payments ledger (was silently missing)
-      if (clampedPaid > 0) {
-        await createRow('Payments', {
-          invoiceId: String(invoice.id || ''),
-          invoiceNumber: number,
-          customerName: String(q.customerName || ''),
-          amount: clampedPaid,
-          type: payTypeLabel,
-          date: new Date().toISOString(),
-          notes: clampedPaid >= calc.grandTotal ? 'Full payment at quotation conversion' : 'Partial payment at quotation conversion',
-        }).catch(() => {})
+        shareToken: '',
+        createdAt: now,
+        deleted: false,
       }
 
-      // Update quotation
-      await updateRow('Quotations', id, { status: 'converted', convertedToInvoiceId: String(invoice.id || '') })
+      // Build payment row (if any) — committed atomically with the invoice.
+      const paymentRow = clampedPaid > 0 ? {
+        id: `pay_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`,
+        invoiceId,
+        invoiceNumber: number,
+        customerName: String(q.customerName || ''),
+        amount: clampedPaid,
+        type: payTypeLabel,
+        date: now,
+        notes: clampedPaid >= calc.grandTotal ? 'Full payment at quotation conversion' : 'Partial payment at quotation conversion',
+        createdAt: now,
+        deleted: false,
+      } : null
 
-      // PERFORMANCE: Batch stock deduction via bulkUpdate (only if requested)
+      // Build stock updates (if deductStock is true)
+      let stockUpdates: { id: string; deductQty: number }[] = []
       if (deductStock) {
         const uniqueItems = new Map<string, number>()
         for (const item of calc.items) {
@@ -202,32 +211,34 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
             uniqueItems.set(String(item.itemId), (uniqueItems.get(String(item.itemId)) || 0) + item.quantity)
           }
         }
-        if (uniqueItems.size > 0) {
-          const itemIds = Array.from(uniqueItems.keys())
-          const dbItems = await Promise.all(itemIds.map((id) => getRow<any>('Items', id).catch(() => null)))
-          const stockUpdates: { id: string; data: any }[] = []
-          for (let i = 0; i < itemIds.length; i++) {
-            if (dbItems[i]) {
-              stockUpdates.push({
-                id: itemIds[i],
-                data: { quantity: Math.max(0, (Number(dbItems[i].quantity) || 0) - (uniqueItems.get(itemIds[i]) || 0)) },
-              })
-            }
-          }
-          if (stockUpdates.length > 0) await bulkUpdate('Items', stockUpdates)
+        for (const [itemId, qty] of uniqueItems.entries()) {
+          stockUpdates.push({ id: itemId, deductQty: qty })
         }
       }
 
-      // Update customer credit (only the unpaid portion)
+      // Build customer credit update (only the unpaid portion)
+      let customerUpdate: { id: string; newCreditBalance: number } | null = null
       if (due > 0 && q.customerId) {
-        const customer = await getRow<any>('Customers', String(q.customerId))
+        const customer = await getRow<any>('Customers', String(q.customerId)).catch(() => null)
         if (customer) {
           const currentCredit = Number(customer.creditBalance) || 0
-          await updateRow('Customers', String(q.customerId), { creditBalance: currentCredit + due })
+          customerUpdate = { id: String(q.customerId), newCreditBalance: currentCredit + due }
         }
       }
 
-      return NextResponse.json({ success: true, invoiceId: invoice.id, invoiceNumber: number, amountPaid: clampedPaid, amountDue: due })
+      // ATOMIC commit — all 5 writes succeed or all fail.
+      await convertQuotationToInvoice({
+        quotationId: id,
+        quotation: q,
+        invoiceNumber: number,
+        invoiceId,
+        invoiceRow,
+        paymentRow,
+        stockUpdates: stockUpdates.length > 0 ? stockUpdates : undefined,
+        customerUpdate,
+      })
+
+      return NextResponse.json({ success: true, invoiceId, invoiceNumber: number, amountPaid: clampedPaid, amountDue: due })
     }
 
     if (action === 'updateStatus') {

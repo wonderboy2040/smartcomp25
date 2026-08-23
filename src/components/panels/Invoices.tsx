@@ -130,7 +130,21 @@ export function InvoicesPanel() {
     if (!confirm('Delete this invoice? Stock will be restored and customer credit adjusted.')) return
     try {
       await apiDelete(`/api/invoices/${id}`)
-      toast({ title: 'Invoice deleted ✓', description: 'Removed locally - syncing to cloud', duration: 3500 })
+      toast({ title: 'Invoice deleted ✓', description: 'Stock restored, credit adjusted', duration: 3500 })
+      // v12.8: Invalidate ALL caches affected by the server-side DELETE:
+      //   - /api/invoices (the list itself — already handled by refetch)
+      //   - /api/items (stock was restored)
+      //   - /api/customers (credit was reduced)
+      //   - /api/payments (linked payments were soft-deleted)
+      //   - /api/dashboard (totals changed)
+      // Previously only /api/invoices was invalidated, so the Stock panel
+      // showed stale (lower) quantities, Customers panel showed stale
+      // (higher) credit, Payments panel showed the deleted payment for
+      // up to 30 seconds.
+      invalidate('/api/items')
+      invalidate('/api/customers')
+      invalidate('/api/payments')
+      invalidate('/api/dashboard')
       refetch()
     } catch (e: any) {
       toast({ title: 'Delete failed', description: e.message, variant: 'destructive', duration: 6000 })

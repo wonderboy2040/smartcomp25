@@ -15,6 +15,10 @@
     {
       "path": "/api/cron/amc",
       "schedule": "0 10 * * *"
+    },
+    {
+      "path": "/api/cron/backup",
+      "schedule": "30 20 * * *"
     }
   ]
 }
