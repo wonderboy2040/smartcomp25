@@ -880,7 +880,7 @@ interface PurchaseLine {
 }
 
 function PurchaseDialog({
-  open, onOpenChange, items, refetch, suppliers, engineers,
+  open, onOpenChange, items, refetch, suppliers, engineers: _engineers,
 }: {
   open: boolean
   onOpenChange: (v: boolean) => void
@@ -958,7 +958,7 @@ function PurchaseDialog({
       for (const line of validLines) {
         if (line.mode === 'new') {
           // Create the new item first, then set its quantity
-          const created: any = await apiPost('/api/items', {
+          await apiPost('/api/items', {
             name: line.newName.trim(),
             sku: line.newSku.trim(),
             category: line.newCategory,

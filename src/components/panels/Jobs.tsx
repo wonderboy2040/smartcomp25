@@ -341,8 +341,8 @@ function NewJobDialog({ open, onOpenChange, editing, onSaved }: { open: boolean,
           <div><Label className="text-xs font-semibold text-slate-700">Problem Description *</Label><Textarea value={form.problemDesc} onChange={(e) => setForm({ ...form, problemDesc: e.target.value })} placeholder="Describe the issue..." rows={3} className="bg-white mt-1" /></div>
           <div><Label className="text-xs font-semibold text-slate-700">Accessories Received</Label><Input value={form.accessories} onChange={(e) => setForm({ ...form, accessories: e.target.value })} placeholder="Charger, Battery, Mouse" className="h-10 bg-white mt-1" /></div>
           <div className="grid grid-cols-3 gap-3">
-            <div><Label className="text-xs font-semibold text-slate-700">Estimated</Label><Input type="number" value={form.estimatedAmount} onChange={(e) => setForm({ ...form, estimatedAmount: Number(e.target.value) })} className="h-10 bg-white mt-1" /></div>
-            <div><Label className="text-xs font-semibold text-slate-700">Advance</Label><Input type="number" value={form.advanceAmount} onChange={(e) => setForm({ ...form, advanceAmount: Number(e.target.value) })} className="h-10 bg-white mt-1" /></div>
+            <div><Label className="text-xs font-semibold text-slate-700">Estimated</Label><Input type="number" placeholder="0" value={form.estimatedAmount || ''} onChange={(e) => setForm({ ...form, estimatedAmount: Number(e.target.value) })} className="h-10 bg-white mt-1" /></div>
+            <div><Label className="text-xs font-semibold text-slate-700">Advance</Label><Input type="number" placeholder="0" value={form.advanceAmount || ''} onChange={(e) => setForm({ ...form, advanceAmount: Number(e.target.value) })} className="h-10 bg-white mt-1" /></div>
             <div><Label className="text-xs font-semibold text-slate-700">Mode</Label><Select value={form.advanceMode} onValueChange={(v) => setForm({ ...form, advanceMode: v })}><SelectTrigger className="h-10 bg-white mt-1"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="Cash">Cash</SelectItem><SelectItem value="UPI">UPI</SelectItem></SelectContent></Select></div>
           </div>
           <div>
@@ -755,8 +755,8 @@ function JobDetailDialog({ job, onClose, onUpdated, onOpenInvoice, onOpenWhatsAp
               <div className="grid grid-cols-12 gap-1.5 bg-slate-50 p-2.5 rounded-xl border">
                 <div className="col-span-4"><Label className="text-[10px] font-semibold text-slate-600">Part Name *</Label><Input placeholder="e.g., 8GB RAM" value={newPart.name} onChange={(e) => setNewPart({ ...newPart, name: e.target.value })} className="h-9 text-xs bg-white mt-1" /></div>
                 <div className="col-span-1"><Label className="text-[10px] font-semibold text-slate-600">Qty</Label><Input type="number" min={1} value={newPart.qty} onChange={(e) => setNewPart({ ...newPart, qty: Number(e.target.value) || 1 })} className="h-9 text-xs bg-white mt-1 px-1 text-center" /></div>
-                <div className="col-span-2"><Label className="text-[10px] font-semibold text-slate-600">Cost</Label><Input type="number" placeholder="Cost" value={newPart.costPrice} onChange={(e) => setNewPart({ ...newPart, costPrice: Number(e.target.value) })} className="h-9 text-xs bg-white mt-1" /></div>
-                <div className="col-span-2"><Label className="text-[10px] font-semibold text-slate-600">Sell</Label><Input type="number" placeholder="Sell" value={newPart.sellPrice} onChange={(e) => setNewPart({ ...newPart, sellPrice: Number(e.target.value) })} className="h-9 text-xs bg-white mt-1" /></div>
+                <div className="col-span-2"><Label className="text-[10px] font-semibold text-slate-600">Cost</Label><Input type="number" placeholder="Cost" value={newPart.costPrice || ''} onChange={(e) => setNewPart({ ...newPart, costPrice: Number(e.target.value) })} className="h-9 text-xs bg-white mt-1" /></div>
+                <div className="col-span-2"><Label className="text-[10px] font-semibold text-slate-600">Sell</Label><Input type="number" placeholder="Sell" value={newPart.sellPrice || ''} onChange={(e) => setNewPart({ ...newPart, sellPrice: Number(e.target.value) })} className="h-9 text-xs bg-white mt-1" /></div>
                 <div className="col-span-2"><Label className="text-[10px] font-semibold text-slate-600">Warranty</Label><Input placeholder="No Warranty" value={newPart.warranty} onChange={(e) => setNewPart({ ...newPart, warranty: e.target.value })} className="h-9 text-xs bg-white mt-1" /></div>
                 <div className="col-span-1 flex items-end"><Button size="sm" onClick={handleAddPart} className="h-9 w-full bg-blue-600 hover:bg-blue-700 text-white p-0"><Plus className="w-4 h-4" /></Button></div>
               </div>
@@ -791,8 +791,8 @@ function JobDetailDialog({ job, onClose, onUpdated, onOpenInvoice, onOpenWhatsAp
                 Service Charge & Final Amount
               </Label>
               <div className="grid grid-cols-2 gap-2">
-                <div><Label className="text-[11px] font-semibold text-blue-800">Service Charge (Rs.)</Label><Input type="number" value={serviceCharge} onChange={(e) => setServiceCharge(Number(e.target.value))} className="h-10 text-sm bg-white mt-1" /></div>
-                <div><Label className="text-[11px] font-semibold text-blue-800">Final Amount = Service + Parts (Rs.)</Label><Input type="number" value={finalAmount} onChange={(e) => setFinalAmount(Number(e.target.value))} className="h-10 text-sm bg-white mt-1 font-bold" /></div>
+                <div><Label className="text-[11px] font-semibold text-blue-800">Service Charge (Rs.)</Label><Input type="number" placeholder="0" value={serviceCharge || ''} onChange={(e) => setServiceCharge(Number(e.target.value))} className="h-10 text-sm bg-white mt-1" /></div>
+                <div><Label className="text-[11px] font-semibold text-blue-800">Final Amount = Service + Parts (Rs.)</Label><Input type="number" placeholder="0" value={finalAmount || ''} onChange={(e) => setFinalAmount(Number(e.target.value))} className="h-10 text-sm bg-white mt-1 font-bold" /></div>
               </div>
               <div className="bg-white p-2.5 rounded-xl border text-xs space-y-1 mt-2">
                 <div className="flex justify-between"><span>Parts Sell Total:</span><span className="font-bold">Rs.{partsTotalSell}</span></div>

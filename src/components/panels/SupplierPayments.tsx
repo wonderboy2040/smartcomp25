@@ -13,7 +13,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { useToast } from '@/hooks/use-toast'
 import { formatCurrency } from '@/lib/calc'
-import { Plus, Wallet, AlertCircle, CheckCircle2, IndianRupee } from 'lucide-react'
+import { Wallet, AlertCircle, CheckCircle2, IndianRupee } from 'lucide-react'
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 

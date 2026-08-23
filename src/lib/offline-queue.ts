@@ -160,32 +160,37 @@ export async function processQueue(): Promise<{ success: number; failed: number 
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(op.body),
         })
-        
+
         if (res.ok) {
           await removeFromQueue(op.id)
           success++
+        } else if (res.status >= 400 && res.status < 500) {
+          // Client error (validation/auth) — retrying can never succeed.
+          // Drop immediately and surface it so the user knows data was lost.
+          await removeFromQueue(op.id)
+          failed++
+          console.error('Queue operation rejected permanently:', res.status, op)
+          notifyQueueDrop(op, `Server rejected (${res.status})`)
+        } else if (op.retries < 3) {
+          // Server error / rate limit — transient, worth retrying
+          try {
+            const db = await openDB()
+            const tx = db.transaction(STORE_NAME, 'readwrite')
+            const store = tx.objectStore(STORE_NAME)
+            store.put({ ...op, retries: op.retries + 1 })
+          } catch {}
+          failed++
         } else {
-          // Retry logic
-          if (op.retries < 3) {
-            // Update retries
-            try {
-              const db = await openDB()
-              const tx = db.transaction(STORE_NAME, 'readwrite')
-              const store = tx.objectStore(STORE_NAME)
-              store.put({ ...op, retries: op.retries + 1 })
-            } catch {}
-            failed++
-          } else {
-            await removeFromQueue(op.id)
-            failed++
-            console.error('Queue operation failed after 3 retries:', op)
-          }
+          await removeFromQueue(op.id)
+          failed++
+          console.error('Queue operation failed after 3 retries:', op)
+          notifyQueueDrop(op, 'Failed after 3 retries')
         }
       } catch (e) {
         console.error('Queue sync error:', e)
         failed++
       }
-      
+
       // Small delay between operations to avoid hammering
       await new Promise(r => setTimeout(r, 200))
     }
@@ -194,6 +199,20 @@ export async function processQueue(): Promise<{ success: number; failed: number 
   }
   
   return { success, failed }
+}
+
+/**
+ * Fired when a queued operation is permanently dropped so its optimistic row
+ * would never reach the server. Any mounted UI can listen for
+ * 'smartcomp:queue-dropped' to warn the user before they assume success.
+ */
+function notifyQueueDrop(op: QueueOperation, reason: string): void {
+  if (typeof window === 'undefined') return
+  try {
+    window.dispatchEvent(new CustomEvent('smartcomp:queue-dropped', {
+      detail: { type: op.type, sheet: op.sheet, url: op.url, tempId: op.tempId, reason },
+    }))
+  } catch {}
 }
 
 // Auto-sync when online

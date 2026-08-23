@@ -16,7 +16,7 @@
 import { useFetch, apiPut, invalidate } from '@/lib/api'
 import { useToast } from '@/hooks/use-toast'
 import { buildWhatsAppMessage, buildWhatsAppLink, WHATSAPP_TEMPLATES } from '@/lib/whatsapp-templates'
-import { X, MessageCircle, CheckCircle2, CreditCard, Heart, Smartphone, Wrench, FileText, Download } from 'lucide-react'
+import { X, MessageCircle, CheckCircle2, CreditCard, Heart, Smartphone, Wrench, FileText } from 'lucide-react'
 import { useState, useEffect } from 'react'
 
 // Map WhatsApp template type → job status to sync.

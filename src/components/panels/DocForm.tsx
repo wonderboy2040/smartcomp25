@@ -903,7 +903,7 @@ export function DocForm({ open, onOpenChange, docType, editing, onSaved }: DocFo
                         </TableCell>
                         <TableCell><Input type="number" min={0.1} step={0.1} value={item.quantity} onChange={(e) => updateItem(idx, { quantity: Number(e.target.value) })} className="h-9 text-sm font-semibold bg-white border-slate-200" /></TableCell>
                         <TableCell>
-                          <Input type="number" value={item.rate} onChange={(e) => updateItem(idx, { rate: Number(e.target.value) })} className="h-9 text-sm font-bold bg-white border-slate-200" />
+                          <Input type="number" placeholder="Rate" value={item.rate || ''} onChange={(e) => updateItem(idx, { rate: Number(e.target.value) })} className="h-9 text-sm font-bold bg-white border-slate-200" />
                           <div className="text-[10px] text-slate-500 mt-1">Cost: Rs.{item.costPrice || 0}</div>
                           {gstMode !== 'non-gst' && item.gstApplicable && Number(item.gstRate) > 0 && (
                             <div className="text-[10px] text-emerald-600 font-medium mt-0.5">
@@ -911,7 +911,7 @@ export function DocForm({ open, onOpenChange, docType, editing, onSaved }: DocFo
                             </div>
                           )}
                         </TableCell>
-                        <TableCell><Input type="number" value={item.discount || 0} onChange={(e) => updateItem(idx, { discount: Number(e.target.value) })} className="h-9 text-sm bg-white border-slate-200" /></TableCell>
+                        <TableCell><Input type="number" placeholder="Disc" value={item.discount || ''} onChange={(e) => updateItem(idx, { discount: Number(e.target.value) })} className="h-9 text-sm bg-white border-slate-200" /></TableCell>
                         {gstMode !== 'non-gst' && (
                           <TableCell className="text-center">
                             <div className="flex flex-col items-center gap-1">
@@ -969,8 +969,8 @@ export function DocForm({ open, onOpenChange, docType, editing, onSaved }: DocFo
                     </div>
                     <div className="grid grid-cols-3 gap-2">
                       <div><Label className="text-[10px] font-bold text-slate-600">Qty</Label><Input type="number" value={item.quantity} onChange={(e) => updateItem(idx, { quantity: Number(e.target.value) })} className="h-10 text-sm font-bold bg-white" /></div>
-                      <div><Label className="text-[10px] font-bold text-slate-600">Rate</Label><Input type="number" value={item.rate} onChange={(e) => updateItem(idx, { rate: Number(e.target.value) })} className="h-10 text-sm font-bold bg-white" /></div>
-                      <div><Label className="text-[10px] font-bold text-slate-600">Disc</Label><Input type="number" value={item.discount || 0} onChange={(e) => updateItem(idx, { discount: Number(e.target.value) })} className="h-10 text-sm bg-white" /></div>
+                      <div><Label className="text-[10px] font-bold text-slate-600">Rate</Label><Input type="number" placeholder="Rate" value={item.rate || ''} onChange={(e) => updateItem(idx, { rate: Number(e.target.value) })} className="h-10 text-sm font-bold bg-white" /></div>
+                      <div><Label className="text-[10px] font-bold text-slate-600">Disc</Label><Input type="number" placeholder="Disc" value={item.discount || ''} onChange={(e) => updateItem(idx, { discount: Number(e.target.value) })} className="h-10 text-sm bg-white" /></div>
                     </div>
                     {gstMode !== 'non-gst' && (
                       <div className="flex justify-between items-center bg-slate-50 p-2 rounded-lg border">
@@ -1019,7 +1019,7 @@ export function DocForm({ open, onOpenChange, docType, editing, onSaved }: DocFo
                 </div>
                 <div className="w-28">
                   <Label className="text-[10px] text-slate-500">Rate Rs.</Label>
-                  <Input type="number" value={customItem.rate} onChange={(e) => setCustomItem({ ...customItem, rate: Number(e.target.value) })} className="h-10 text-sm font-bold bg-white border-slate-200" placeholder="Rate Rs." />
+                  <Input type="number" value={customItem.rate || ''} onChange={(e) => setCustomItem({ ...customItem, rate: Number(e.target.value) })} className="h-10 text-sm font-bold bg-white border-slate-200" placeholder="Rate Rs." />
                 </div>
                 {gstMode !== 'non-gst' && (
                   <>
@@ -1078,7 +1078,7 @@ export function DocForm({ open, onOpenChange, docType, editing, onSaved }: DocFo
                   </div>
                   <div>
                     <Label className="text-xs font-bold text-blue-900 flex items-center gap-1"><IndianRupee className="w-3.5 h-3.5" />Amount Paid</Label>
-                    <Input type="number" value={amountPaid} onChange={(e) => setAmountPaid(Number(e.target.value))} className="h-11 bg-white border-blue-200 mt-1.5 font-bold" placeholder="0" />
+                    <Input type="number" value={amountPaid || ''} onChange={(e) => setAmountPaid(Number(e.target.value))} className="h-11 bg-white border-blue-200 mt-1.5 font-bold" placeholder="0" />
                   </div>
                   {amountPaid < calc.grandTotal && amountPaid > 0 && (
                     <div className="col-span-2 text-xs bg-amber-50 border border-amber-200 rounded-lg p-2.5 text-amber-800 font-bold">
@@ -1093,12 +1093,12 @@ export function DocForm({ open, onOpenChange, docType, editing, onSaved }: DocFo
                 </div>
               )}
               <div className="grid grid-cols-3 gap-3">
-                <div><Label className="text-xs font-bold text-slate-700">Courier Charges</Label><Input type="number" value={courierCharges} onChange={(e) => setCourierCharges(Number(e.target.value))} className="h-10 bg-white border-slate-200 mt-1" placeholder="0" /></div>
-                <div><Label className="text-xs font-bold text-slate-700">Other Charges</Label><Input type="number" value={otherCharges} onChange={(e) => setOtherCharges(Number(e.target.value))} className="h-10 bg-white border-slate-200 mt-1" placeholder="0" /></div>
-                <div><Label className="text-xs font-bold text-slate-700">Discount Rs.</Label><Input type="number" value={discount} onChange={(e) => { setDiscount(Number(e.target.value)); setDiscountPercent(0) }} className="h-10 bg-white border-slate-200 mt-1 font-bold" placeholder="0" /></div>
+                <div><Label className="text-xs font-bold text-slate-700">Courier Charges</Label><Input type="number" value={courierCharges || ''} onChange={(e) => setCourierCharges(Number(e.target.value))} className="h-10 bg-white border-slate-200 mt-1" placeholder="0" /></div>
+                <div><Label className="text-xs font-bold text-slate-700">Other Charges</Label><Input type="number" value={otherCharges || ''} onChange={(e) => setOtherCharges(Number(e.target.value))} className="h-10 bg-white border-slate-200 mt-1" placeholder="0" /></div>
+                <div><Label className="text-xs font-bold text-slate-700">Discount Rs.</Label><Input type="number" value={discount || ''} onChange={(e) => { setDiscount(Number(e.target.value)); setDiscountPercent(0) }} className="h-10 bg-white border-slate-200 mt-1 font-bold" placeholder="0" /></div>
               </div>
               <div className="grid grid-cols-2 gap-3">
-                <div><Label className="text-xs font-bold text-slate-700">Discount % (auto calculates Rs.)</Label><Input type="number" value={discountPercent} onChange={(e) => setDiscountPercent(Number(e.target.value))} className="h-10 bg-white border-slate-200 mt-1" placeholder="0%" /></div>
+                <div><Label className="text-xs font-bold text-slate-700">Discount % (auto calculates Rs.)</Label><Input type="number" value={discountPercent || ''} onChange={(e) => setDiscountPercent(Number(e.target.value))} className="h-10 bg-white border-slate-200 mt-1" placeholder="0%" /></div>
                 <div className="flex items-end gap-2">
                   <label className="flex items-center gap-2 text-xs font-bold text-slate-700 bg-white border-2 border-slate-200 rounded-xl px-4 h-10 cursor-pointer hover:bg-slate-50 flex-1">
                     <input type="checkbox" checked={roundOff} onChange={(e) => setRoundOff(e.target.checked)} className="rounded" />Round Off Grand Total

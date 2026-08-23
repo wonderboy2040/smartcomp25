@@ -1244,7 +1244,7 @@ export async function convertQuotationToInvoice(opts: {
   stockUpdates?: { id: string; deductQty: number }[]
   customerUpdate?: { id: string; newCreditBalance: number } | null
 }): Promise<{ success: true; invoiceId: string; invoiceNumber: string }> {
-  const { quotationId, quotation, invoiceNumber, invoiceId, invoiceRow, paymentRow, stockUpdates, customerUpdate } = opts
+  const { quotationId, quotation: _quotation, invoiceNumber, invoiceId, invoiceRow, paymentRow, stockUpdates, customerUpdate } = opts
 
   const db = await getDb()
   if (!db) throw new Error(getInitError() || 'Firebase not initialized')
@@ -1334,7 +1334,7 @@ export async function deleteInvoiceAtomic(opts: {
   customerUpdate?: { id: string; newCreditBalance: number } | null
   paymentIdsToDelete?: string[]
 }): Promise<{ success: true; restoredStock: number; deletedPayments: number }> {
-  const { invoiceId, invoice, stockRestores, customerUpdate, paymentIdsToDelete } = opts
+  const { invoiceId, invoice: _invoice, stockRestores, customerUpdate, paymentIdsToDelete } = opts
 
   const db = await getDb()
   if (!db) throw new Error(getInitError() || 'Firebase not initialized')

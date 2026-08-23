@@ -12,7 +12,6 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { useToast } from '@/hooks/use-toast'
-import { formatCurrency } from '@/lib/calc'
 import { Plus, ClipboardList, TrendingUp, TrendingDown, AlertTriangle } from 'lucide-react'
 
 /* eslint-disable @typescript-eslint/no-explicit-any */

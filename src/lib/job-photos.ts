@@ -135,5 +135,7 @@ export async function uploadToFirebaseStorage(
   // 2. Upload file to storage bucket: /jobs/{jobId}/{timestamp}_{filename}
   // 3. Get public download URL
   // 4. Return URL
+  void file
+  void jobId
   throw new Error('Firebase Storage not implemented yet')
 }

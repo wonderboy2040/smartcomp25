@@ -4,6 +4,7 @@ import "./globals.css";
 import { Toaster } from "@/components/ui/toaster";
 import { ThemeProvider } from "@/lib/theme-context";
 import { PwaInstallPrompt } from "@/components/PwaInstallPrompt";
+import { QueueDropWatcher } from "@/components/QueueDropWatcher";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -85,6 +86,7 @@ export default function RootLayout({
         <ThemeProvider>
           {children}
           <Toaster />
+          <QueueDropWatcher />
           <PwaInstallPrompt />
         </ThemeProvider>
       </body>

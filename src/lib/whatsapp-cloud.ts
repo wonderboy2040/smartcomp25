@@ -127,10 +127,6 @@ export async function sendPdfDocument(
   // ─── Step 1: Upload the PDF binary to Meta's storage ───
   // Build a multipart/form-data body manually (no extra deps required).
   const boundary = '----SmartCompBoundary' + Math.random().toString(36).slice(2)
-  const metadata = JSON.stringify({
-    messaging_product: 'whatsapp',
-    type: 'document',
-  })
   const safeName = filename.replace(/[^\w.-]+/g, '_').slice(0, 100)
 
   const parts: Buffer[] = []

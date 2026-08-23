@@ -85,8 +85,12 @@ export function computeInvoice(
   const computed = items.map(computeLineItem)
   const subtotal = computed.reduce((s, i) => s + i.amount, 0)
   const gstAmount = computed.reduce((s, i) => s + i.gstAmount, 0)
-  const sgstAmount = round2(gstAmount / 2)
-  const cgstAmount = round2(gstAmount / 2)
+  // Split GST into two halves; round SGST and derive CGST as the remainder so
+  // sgst + cgst always reconciles exactly with the total gstAmount (odd paise
+  // can otherwise make the printed tax breakdown exceed the totals by ₹0.01).
+  const gstRounded = round2(gstAmount)
+  const sgstAmount = round2(gstRounded / 2)
+  const cgstAmount = round2(gstRounded - sgstAmount)
   const courierCharges = Number(options.courierCharges) || 0
   const otherCharges = Number(options.otherCharges) || 0
   const discount = Number(options.discount) || 0

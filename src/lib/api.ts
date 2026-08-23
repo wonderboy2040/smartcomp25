@@ -800,7 +800,7 @@ async function doFetchWithRetry(url: string, options?: RequestInit, attempt = 1)
     // Quantum: use 3s for GET ultra-fast, 5s for others
     const isGet = !options?.method || options.method === 'GET'
     const timeoutMs = isGet ? QUANTUM_FETCH_TIMEOUT : FETCH_TIMEOUT_MS
-    const timeout = setTimeout(() => controller.abort('Request timed out — server took too long'), timeoutMs)
+    const timeout = setTimeout(() => controller.abort(), timeoutMs)
     
     const res = await fetch(url, {
       ...options,
@@ -859,7 +859,9 @@ async function doFetchWithRetry(url: string, options?: RequestInit, attempt = 1)
     cache.delete(`__stale:${url}`)
     return filtered
   } catch (e: any) {
-    if (attempt <= RETRY_ATTEMPTS && (e.name === 'AbortError' || e.message.includes('Failed to fetch') || e.message.includes('NetworkError'))) {
+    const msg = typeof e === 'string' ? e : (e?.message || '')
+    const isAbort = e instanceof DOMException && (e.name === 'AbortError' || e.name === 'TimeoutError')
+    if (attempt <= RETRY_ATTEMPTS && (isAbort || e?.name === 'AbortError' || msg.includes('Failed to fetch') || msg.includes('NetworkError'))) {
       await new Promise(r => setTimeout(r, RETRY_DELAY * attempt))
       return doFetchWithRetry(url, options, attempt + 1)
     }
@@ -935,7 +937,7 @@ export async function apiPost(url: string, body: ApiBody) {
 
   try {
     const controller = new AbortController()
-    const timeout = setTimeout(() => controller.abort('Request timed out — server took too long'), FETCH_TIMEOUT_MS)
+    const timeout = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS)
     const r = await fetch(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -1116,7 +1118,7 @@ export async function apiPut(url: string, body: ApiBody) {
 
   try {
     const controller = new AbortController()
-    const timeout = setTimeout(() => controller.abort('Request timed out — server took too long'), FETCH_TIMEOUT_MS)
+    const timeout = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS)
     const r = await fetch(url, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
@@ -1234,7 +1236,7 @@ export async function apiDelete(url: string) {
 
   try {
     const controller = new AbortController()
-    const timeout = setTimeout(() => controller.abort('Request timed out — server took too long'), FETCH_TIMEOUT_MS)
+    const timeout = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS)
     const r = await fetch(url, { method: 'DELETE', signal: controller.signal })
     clearTimeout(timeout)
     const data = await r.json().catch(() => ({}))
