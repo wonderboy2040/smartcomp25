@@ -94,6 +94,10 @@ export async function sendJobStatusNotification(
       message = `*${sn}*\n\nThank you ${customerName}!\n\nYour ${device} has been delivered. Job ID: ${jobId}.\n${finalAmount > 0 ? `Total: Rs.${finalAmount}` : ''}\n\nWe appreciate your business. For any issues, please contact us.`
       break
 
+    case 'Not Repaired - Returned':
+      message = `*${sn}*\n\nHello ${customerName},\n\nYour ${device}${brand ? ` (${brand})` : ''} is being returned without repair as per your request.\nJob ID: ${jobId}\n\nPlease collect your device at your earliest convenience. We are always happy to help in the future.\n\nThank you!`
+      break
+
     default:
       message = `*${sn}*\n\nHello ${customerName},\n\nYour job status updated: ${newStatus}.\nJob ID: ${jobId}${trackUrl ? `\n\nTrack online: ${trackUrl}` : ''}`
   }

@@ -3,7 +3,7 @@ import { getRow, updateRow, deleteRow, listRows, createRow, bulkUpdate, complete
 import { safeJsonParse } from '@/lib/utils'
 import { sendJobStatusNotification } from '@/lib/notifications'
 
-const VALID_STATUSES = new Set(['Pending', 'Device Received', 'In Progress', 'Completed', 'Delivered'])
+const VALID_STATUSES = new Set(['Pending', 'Device Received', 'In Progress', 'Completed', 'Delivered', 'Not Repaired - Returned'])
 
 type ServicePart = {
   name: string
@@ -334,6 +334,27 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
       })
 
       const notifResult = await appendStatusAndNotify(id, existing, 'Delivered', 'Job delivered to customer', updated)
+      return NextResponse.json({ success: true, job: updated, notification: notifResult })
+    }
+
+    if (action === 'returnUnrepaired') {
+      const existing = await getRow<any>('Jobs', id)
+      if (!existing) return NextResponse.json({ error: 'Not found' }, { status: 404 })
+      if (String(existing.status) === 'Delivered' || String(existing.status) === 'Not Repaired - Returned') {
+        return NextResponse.json({ error: 'Job is already closed' }, { status: 400 })
+      }
+
+      const reason = String(body?.reason || 'Customer refused service')
+      const updated = await updateRow('Jobs', id, {
+        status: 'Not Repaired - Returned',
+        completedDate: new Date().toISOString(),
+        deliveredAt: new Date().toISOString(),
+        diagnosisNotes: String(body?.diagnosisNotes || existing?.diagnosisNotes || ''),
+        notes: `${String(existing?.notes || '')}${existing?.notes ? '\n' : ''}[NOT REPAIRED] ${reason}`.trim(),
+        updatedAt: new Date().toISOString(),
+      })
+
+      const notifResult = await appendStatusAndNotify(id, existing, 'Not Repaired - Returned', `Service not done - ${reason}`, updated)
       return NextResponse.json({ success: true, job: updated, notification: notifResult })
     }
 

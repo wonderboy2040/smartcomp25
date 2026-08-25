@@ -16,7 +16,7 @@
 import { useFetch, apiPut, invalidate } from '@/lib/api'
 import { useToast } from '@/hooks/use-toast'
 import { buildWhatsAppMessage, buildWhatsAppLink, WHATSAPP_TEMPLATES } from '@/lib/whatsapp-templates'
-import { X, MessageCircle, CheckCircle2, CreditCard, Heart, Smartphone, Wrench, FileText } from 'lucide-react'
+import { X, MessageCircle, CheckCircle2, CreditCard, Heart, Smartphone, Wrench, FileText, Undo2 } from 'lucide-react'
 import { useState, useEffect } from 'react'
 
 // Map WhatsApp template type → job status to sync.
@@ -32,6 +32,7 @@ import { useState, useEffect } from 'react'
 const TEMPLATE_TO_STATUS: Record<string, string> = {
   received: 'Device Received',
   progress: 'In Progress',
+  'not-repaired': 'Not Repaired - Returned',
 }
 
 interface Props {
@@ -46,6 +47,7 @@ const ICON_MAP: Record<string, any> = {
   'fa-credit-card': CreditCard,
   'fa-heart': Heart,
   'fa-file-invoice': FileText,
+  'fa-undo': Undo2,
 }
 
 export function ServiceWhatsAppModal({ jobId, onClose }: Props) {
@@ -235,6 +237,14 @@ export function ServiceWhatsAppModal({ jobId, onClose }: Props) {
       titleColor: 'text-slate-900',
       descColor: 'text-slate-600',
       hover: 'hover:bg-slate-100 hover:border-slate-300'
+    },
+    red:    { 
+      bg: 'bg-red-50', 
+      border: 'border-red-200',
+      iconBg: 'bg-red-600',
+      titleColor: 'text-slate-900',
+      descColor: 'text-slate-600',
+      hover: 'hover:bg-red-100 hover:border-red-300'
     },
   }
 

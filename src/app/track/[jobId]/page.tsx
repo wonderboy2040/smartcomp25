@@ -19,6 +19,7 @@ const STATUS_CONFIG: Record<string, { color: string; bg: string; icon: any; labe
   'In Progress': { color: 'text-blue-700', bg: 'bg-blue-50 border-blue-200', icon: Loader2, label: 'In Progress' },
   Completed: { color: 'text-emerald-700', bg: 'bg-emerald-50 border-emerald-200', icon: CheckCircle2, label: 'Ready for Pickup' },
   Delivered: { color: 'text-purple-700', bg: 'bg-purple-50 border-purple-200', icon: Package, label: 'Delivered' },
+  'Not Repaired - Returned': { color: 'text-red-700', bg: 'bg-red-50 border-red-200', icon: AlertCircle, label: 'Not Repaired - Returned' },
 }
 
 export default function TrackPage() {

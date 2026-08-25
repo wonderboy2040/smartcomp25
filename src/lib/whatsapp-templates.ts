@@ -30,7 +30,7 @@ export interface WhatsAppShopInfo {
   upiId?: string
 }
 
-export type WhatsAppTemplateType = 'received' | 'progress' | 'completed' | 'payment' | 'delivered' | 'invoice'
+export type WhatsAppTemplateType = 'received' | 'progress' | 'completed' | 'payment' | 'delivered' | 'invoice' | 'not-repaired'
 
 export const WHATSAPP_TEMPLATES: Array<{ type: WhatsAppTemplateType; title: string; desc: string; icon: string; color: string }> = [
   { type: 'received',  title: 'Device Received',    desc: 'Confirm with cost estimate', icon: 'fa-inbox',                color: 'blue'   },
@@ -39,6 +39,7 @@ export const WHATSAPP_TEMPLATES: Array<{ type: WhatsAppTemplateType; title: stri
   { type: 'invoice',   title: 'Share Invoice',       desc: 'Full bill with item details',icon: 'fa-file-invoice',         color: 'purple' },
   { type: 'payment',   title: 'Payment Reminder',    desc: 'Balance with UPI details',  icon: 'fa-indian-rupee-sign',    color: 'purple' },
   { type: 'delivered', title: 'Delivered',           desc: 'Thank you note & review',   icon: 'fa-handshake',            color: 'gray'   },
+  { type: 'not-repaired', title: 'Not Repaired - Returned', desc: 'Device returned without repair', icon: 'fa-box', color: 'red' },
 ]
 
 function formatSafeDate(rawDate?: string): string {
@@ -79,6 +80,9 @@ export function buildWhatsAppMessage(
 
     case 'delivered':
       return `*${bn}*\n\n🤝 *THANK YOU FOR YOUR BUSINESS!*\n\nDear *${job.customerName}*,\n\nYour ${job.deviceType}${job.brandModel ? ' (' + job.brandModel + ')' : ''} has been delivered successfully.\n\n📋 *Job No:* ${job.id}\n📅 *Delivered On:* ${jobDate}\n\n⭐ We hope you are satisfied with our service! If you have 1 minute, please share your valuable feedback.\n\n📞 *Help & Support:* ${shop.businessMobile || ''}\n📍 ${shop.businessAddress || ''}\n\nThank you for choosing ${bn}! 🙏`
+
+    case 'not-repaired':
+      return `*${bn}*\n\n📦 *DEVICE RETURNED - SERVICE NOT DONE*\n\nDear *${job.customerName}*,\n\nAs per your request, your device is being returned without repair.\n\n📋 *Job No:* ${job.id}\n📅 *Date:* ${jobDate}\n📱 *Device:* ${job.deviceType}${job.brandModel ? ' - ' + job.brandModel : ''}\n🔍 *Reported Issue:* ${job.problemDesc}\n${job.accessories ? `📦 *Accessories Returned:* ${job.accessories}\n` : ''}\n💰 *CHARGES:*\n${svc > 0 ? `🔧 Diagnosis/Inspection Fee: ₹${svc}\n` : '• No charges applied ✅\n'}${job.advanceAmount > 0 ? `💵 Advance Received: ₹${job.advanceAmount}\n${svc > 0 && job.advanceAmount >= svc ? '✅ Adjusted against inspection fee\n' : svc > 0 ? `💵 Balance Due: ₹${Math.max(0, svc - job.advanceAmount)}\n` : '💵 Refund Due: ₹' + job.advanceAmount + '\n'}` : ''}\n⚠️ *Please collect your device at your earliest convenience.*\n\n📞 *Contact:* ${shop.businessMobile || ''}\n📍 ${shop.businessAddress || ''}\n\nWe are always happy to help in the future. Thank you! 🙏`
   }
 }
 

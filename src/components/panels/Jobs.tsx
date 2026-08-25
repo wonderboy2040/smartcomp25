@@ -20,7 +20,7 @@ import { useToast } from '@/hooks/use-toast'
 import { formatCurrency } from '@/lib/calc'
 import { usePdfPreview } from '@/lib/preview-context'
 import { ServiceWhatsAppModal } from '@/components/ServiceWhatsAppModal'
-import { Wrench, Plus, Search, Laptop, Printer, Monitor, Battery, ScanLine, Smartphone, ClipboardList, CheckCircle2, Clock, Package, IndianRupee, Trash2, RefreshCw, Send, Eye, ExternalLink, Copy, FileText, MessageSquare, ShoppingCart, AlertTriangle, Boxes } from 'lucide-react'
+import { Wrench, Plus, Search, Laptop, Printer, Monitor, Battery, ScanLine, Smartphone, ClipboardList, CheckCircle2, Clock, Package, IndianRupee, Trash2, RefreshCw, Send, Eye, ExternalLink, Copy, FileText, MessageSquare, ShoppingCart, AlertTriangle, Boxes, Undo2 } from 'lucide-react'
 
 const DEVICE_ICONS: Record<string, any> = {
   Laptop: Laptop,
@@ -38,6 +38,7 @@ const STATUS_COLORS: Record<string, string> = {
   'In Progress': 'bg-blue-50 text-blue-700 border-blue-200',
   Completed: 'bg-emerald-50 text-emerald-700 border-emerald-200',
   Delivered: 'bg-purple-50 text-purple-700 border-purple-200',
+  'Not Repaired - Returned': 'bg-red-50 text-red-700 border-red-200',
 }
 
 // ────────────────────────────────────────────────────────────────────────
@@ -113,6 +114,7 @@ const jobTotal = (job: any) => money(Number(job?.finalAmount) || Number(job?.est
 const jobPaidTotal = (job: any) => money((Number(job?.advanceAmount) || 0) + (Number(job?.paidAmount) || 0))
 const jobBalance = (job: any) => money(Math.max(0, jobTotal(job) - jobPaidTotal(job)))
 const isActiveJob = (job: any) => job?.status === 'Pending' || job?.status === 'Device Received' || job?.status === 'In Progress'
+const isClosedJob = (job: any) => job?.status === 'Delivered' || job?.status === 'Not Repaired - Returned'
 const jobAgeDays = (job: any) => {
   const ts = job?.createdAt ? new Date(job.createdAt).getTime() : 0
   return ts && !Number.isNaN(ts) ? Math.max(0, Math.floor((Date.now() - ts) / 86400000)) : 0
@@ -172,6 +174,7 @@ export function JobsPanel() {
       delivered: list.filter((j) => j.status === 'Delivered').length,
       highPriority: list.filter((j) => j.priority === 'High' && isActiveJob(j)).length,
       overdue: list.filter((j) => isActiveJob(j) && jobAgeDays(j) >= 3).length,
+      notRepaired: list.filter((j) => j.status === 'Not Repaired - Returned').length,
     }
   }, [jobs])
 
@@ -202,12 +205,13 @@ export function JobsPanel() {
         </Button>
       </div>
 
-      <div className="grid grid-cols-2 md:grid-cols-5 gap-2 sm:gap-3">
+      <div className="grid grid-cols-2 md:grid-cols-6 gap-2 sm:gap-3">
         <Card><CardContent className="p-3"><div className="flex items-center justify-between mb-1"><span className="text-[10px] font-medium text-slate-600 uppercase">Total</span><ClipboardList className="w-4 h-4 text-slate-500" /></div><p className="text-lg sm:text-2xl font-bold text-slate-900">{stats.total}</p></CardContent></Card>
         <Card><CardContent className="p-3"><div className="flex items-center justify-between mb-1"><span className="text-[10px] font-medium text-slate-600 uppercase">Pending</span><Clock className="w-4 h-4 text-amber-500" /></div><p className="text-lg sm:text-2xl font-bold text-amber-600">{stats.pending}</p></CardContent></Card>
         <Card><CardContent className="p-3"><div className="flex items-center justify-between mb-1"><span className="text-[10px] font-medium text-slate-600 uppercase">In Progress</span><RefreshCw className="w-4 h-4 text-blue-500" /></div><p className="text-lg sm:text-2xl font-bold text-blue-600">{stats.progress}</p></CardContent></Card>
         <Card><CardContent className="p-3"><div className="flex items-center justify-between mb-1"><span className="text-[10px] font-medium text-slate-600 uppercase">Completed</span><CheckCircle2 className="w-4 h-4 text-emerald-500" /></div><p className="text-lg sm:text-2xl font-bold text-emerald-600">{stats.completed}</p></CardContent></Card>
         <Card><CardContent className="p-3"><div className="flex items-center justify-between mb-1"><span className="text-[10px] font-medium text-slate-600 uppercase">Delivered</span><Package className="w-4 h-4 text-purple-500" /></div><p className="text-lg sm:text-2xl font-bold text-purple-600">{stats.delivered}</p></CardContent></Card>
+        <Card><CardContent className="p-3"><div className="flex items-center justify-between mb-1"><span className="text-[10px] font-medium text-slate-600 uppercase">Not Repaired</span><Undo2 className="w-4 h-4 text-red-500" /></div><p className="text-lg sm:text-2xl font-bold text-red-600">{stats.notRepaired}</p></CardContent></Card>
       </div>
 
       <div className="flex flex-wrap gap-2">
@@ -217,7 +221,7 @@ export function JobsPanel() {
         </div>
         <Select value={statusFilter} onValueChange={setStatusFilter}>
           <SelectTrigger className="w-full sm:w-44 h-11 bg-white"><SelectValue placeholder="All Status" /></SelectTrigger>
-          <SelectContent><SelectItem value="all">All Status</SelectItem><SelectItem value="Pending">Pending</SelectItem><SelectItem value="Device Received">Device Received</SelectItem><SelectItem value="In Progress">In Progress</SelectItem><SelectItem value="Completed">Completed</SelectItem><SelectItem value="Delivered">Delivered</SelectItem></SelectContent>
+          <SelectContent><SelectItem value="all">All Status</SelectItem><SelectItem value="Pending">Pending</SelectItem><SelectItem value="Device Received">Device Received</SelectItem><SelectItem value="In Progress">In Progress</SelectItem><SelectItem value="Completed">Completed</SelectItem><SelectItem value="Delivered">Delivered</SelectItem><SelectItem value="Not Repaired - Returned">Not Repaired - Returned</SelectItem></SelectContent>
         </Select>
         <Select value={priorityFilter} onValueChange={setPriorityFilter}>
           <SelectTrigger className="w-full sm:w-40 h-11 bg-white"><SelectValue placeholder="All Priority" /></SelectTrigger>
@@ -408,6 +412,8 @@ function JobDetailDialog({ job, onClose, onUpdated, onOpenInvoice, onOpenWhatsAp
   const [quickPayMode, setQuickPayMode] = useState<'Cash' | 'UPI'>('Cash')
   const [saving, setSaving] = useState(false)
   const [deductStock, setDeductStock] = useState(true)
+  const [showReturnDialog, setShowReturnDialog] = useState(false)
+  const [returnReason, setReturnReason] = useState('')
 
   // Full catalogue, fetched once from the same URL every other panel uses so
   // it comes straight from cache. Filtering is local and shows EVERY match —
@@ -570,6 +576,26 @@ function JobDetailDialog({ job, onClose, onUpdated, onOpenInvoice, onOpenWhatsAp
     } finally { setSaving(false) }
   }
 
+  const handleReturnUnrepaired = async () => {
+    if (!returnReason.trim()) {
+      toast({ title: 'Please enter a reason', description: 'E.g., Customer refused due to high cost, Customer changed mind, etc.', variant: 'destructive' })
+      return
+    }
+    setSaving(true)
+    try {
+      await apiPut(`/api/jobs/${job.id}`, {
+        action: 'returnUnrepaired',
+        reason: returnReason.trim(),
+      })
+      toast({ title: 'Device returned ✓', description: 'Service not done — device returned to customer.' })
+      invalidate('/api/jobs')
+      setShowReturnDialog(false)
+      onUpdated()
+    } catch (e: any) {
+      toast({ title: 'Error', description: e.message, variant: 'destructive' })
+    } finally { setSaving(false) }
+  }
+
   const Icon = DEVICE_ICONS[job.deviceType] || Smartphone
 
   return (
@@ -659,26 +685,88 @@ function JobDetailDialog({ job, onClose, onUpdated, onOpenInvoice, onOpenWhatsAp
             </div>
 
             {/* Primary action button — moves to next state with one click */}
-            {job.status !== 'Delivered' ? (
-              <Button
-                onClick={handleAdvanceStatus}
-                disabled={saving}
-                className="w-full h-11 font-bold text-sm"
-                style={{
-                  backgroundColor: job.status === 'In Progress' ? '#10b981' : job.status === 'Completed' ? '#7c3aed' : '#2563eb',
-                }}
-              >
-                {saving ? (
-                  <><RefreshCw className="w-4 h-4 mr-2 animate-spin" /> Processing...</>
+            {!isClosedJob(job) ? (
+              <div className="space-y-2">
+                <Button
+                  onClick={handleAdvanceStatus}
+                  disabled={saving}
+                  className="w-full h-11 font-bold text-sm"
+                  style={{
+                    backgroundColor: job.status === 'In Progress' ? '#10b981' : job.status === 'Completed' ? '#7c3aed' : '#2563eb',
+                  }}
+                >
+                  {saving ? (
+                    <><RefreshCw className="w-4 h-4 mr-2 animate-spin" /> Processing...</>
+                  ) : (
+                    <>
+                      {job.status === 'Pending' && <><Package className="w-4 h-4 mr-2" /> {STATUS_NEXT_LABEL[job.status as JobStatus]}</>}
+                      {job.status === 'Device Received' && <><RefreshCw className="w-4 h-4 mr-2" /> {STATUS_NEXT_LABEL[job.status as JobStatus]}</>}
+                      {job.status === 'In Progress' && <><CheckCircle2 className="w-4 h-4 mr-2" /> {STATUS_NEXT_LABEL[job.status as JobStatus]}</>}
+                      {job.status === 'Completed' && <><Package className="w-4 h-4 mr-2" /> {STATUS_NEXT_LABEL[job.status as JobStatus]}</>}
+                    </>
+                  )}
+                </Button>
+
+                {/* Not Repaired — Return to Customer button */}
+                {!showReturnDialog ? (
+                  <Button
+                    variant="outline"
+                    onClick={() => setShowReturnDialog(true)}
+                    disabled={saving}
+                    className="w-full h-10 font-semibold text-sm bg-red-50 hover:bg-red-100 text-red-700 border-2 border-red-200 hover:border-red-300"
+                  >
+                    <Undo2 className="w-4 h-4 mr-2" /> Service Not Done — Return to Customer
+                  </Button>
                 ) : (
-                  <>
-                    {job.status === 'Pending' && <><Package className="w-4 h-4 mr-2" /> {STATUS_NEXT_LABEL[job.status as JobStatus]}</>}
-                    {job.status === 'Device Received' && <><RefreshCw className="w-4 h-4 mr-2" /> {STATUS_NEXT_LABEL[job.status as JobStatus]}</>}
-                    {job.status === 'In Progress' && <><CheckCircle2 className="w-4 h-4 mr-2" /> {STATUS_NEXT_LABEL[job.status as JobStatus]}</>}
-                    {job.status === 'Completed' && <><Package className="w-4 h-4 mr-2" /> {STATUS_NEXT_LABEL[job.status as JobStatus]}</>}
-                  </>
+                  <div className="bg-red-50 border-2 border-red-200 rounded-xl p-3 space-y-2 animate-in fade-in">
+                    <div className="flex items-center gap-2 mb-1">
+                      <Undo2 className="w-4 h-4 text-red-600" />
+                      <Label className="text-sm font-bold text-red-800">Return Without Repair</Label>
+                    </div>
+                    <p className="text-[11px] text-red-700">Customer ne service refuse ki hai. Device bina repair ke wapas hoga.</p>
+                    <Label className="text-[11px] font-semibold text-red-800">Reason *</Label>
+                    <Select value={returnReason} onValueChange={setReturnReason}>
+                      <SelectTrigger className="h-10 bg-white text-sm border-red-200">
+                        <SelectValue placeholder="Select reason..." />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="Customer refused - cost too high">Customer refused — Cost too high</SelectItem>
+                        <SelectItem value="Customer refused - not needed">Customer refused — Not needed anymore</SelectItem>
+                        <SelectItem value="Customer refused - will get it done later">Customer refused — Will get it done later</SelectItem>
+                        <SelectItem value="Part not available">Part not available</SelectItem>
+                        <SelectItem value="Device beyond repair">Device beyond repair</SelectItem>
+                        <SelectItem value="Customer purchased new device">Customer purchased new device</SelectItem>
+                        <SelectItem value="Customer not reachable">Customer not reachable</SelectItem>
+                        <SelectItem value="Other reason">Other reason</SelectItem>
+                      </SelectContent>
+                    </Select>
+                    {returnReason === 'Other reason' && (
+                      <Input
+                        placeholder="Enter custom reason..."
+                        value=""
+                        onChange={(e) => setReturnReason(e.target.value)}
+                        className="h-9 text-sm bg-white border-red-200"
+                      />
+                    )}
+                    <div className="flex gap-2 mt-2">
+                      <Button
+                        onClick={handleReturnUnrepaired}
+                        disabled={saving || !returnReason}
+                        className="flex-1 h-10 bg-red-600 hover:bg-red-700 text-white font-bold text-sm"
+                      >
+                        {saving ? <><RefreshCw className="w-4 h-4 mr-2 animate-spin" /> Processing...</> : <><Undo2 className="w-4 h-4 mr-2" /> Confirm Return</>}
+                      </Button>
+                      <Button variant="outline" onClick={() => { setShowReturnDialog(false); setReturnReason('') }} className="h-10 bg-white" disabled={saving}>
+                        Cancel
+                      </Button>
+                    </div>
+                  </div>
                 )}
-              </Button>
+              </div>
+            ) : job.status === 'Not Repaired - Returned' ? (
+              <div className="w-full h-11 rounded-lg bg-red-50 border border-red-200 flex items-center justify-center gap-2 text-red-700 font-bold text-sm">
+                <Undo2 className="w-4 h-4" /> Service Not Done — Device Returned to Customer
+              </div>
             ) : (
               <div className="w-full h-11 rounded-lg bg-purple-50 border border-purple-200 flex items-center justify-center gap-2 text-purple-700 font-bold text-sm">
                 <CheckCircle2 className="w-4 h-4" /> Job Closed — Delivered to customer
@@ -686,7 +774,7 @@ function JobDetailDialog({ job, onClose, onUpdated, onOpenInvoice, onOpenWhatsAp
             )}
 
             {/* Helper text — what happens next */}
-            {job.status !== 'Delivered' && (
+            {!isClosedJob(job) && (
               <p className="text-[10px] text-slate-500 mt-2 text-center">
                 {job.status === 'Pending' && 'Device not yet received from customer.'}
                 {job.status === 'Device Received' && 'Device at the shop — start the repair when ready.'}
