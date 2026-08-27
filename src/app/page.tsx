@@ -98,6 +98,11 @@ const PREFETCH_URLS_DEFERRED = [
   '/api/suppliers',
   '/api/expenses',
   '/api/payments?limit=200',
+  // v12.8: prefetch ServicePayments so /api/customer-statements (which
+  // fetches Invoices + Payments + Jobs + ServicePayments in parallel) gets
+  // a cache hit on the ServicePayments sheet instead of a cold Firestore read
+  // the first time the user opens a Customer Statement.
+  '/api/service-payments',
 ]
 
 // Chunk warmers, keyed by nav id. Used both for the small eager preload set
@@ -115,6 +120,11 @@ const PANEL_PRELOADERS: Record<string, () => Promise<unknown>> = {
   whatsapp: () => import('@/components/panels/WhatsApp'),
   settings: () => import('@/components/panels/Settings'),
   reports: () => import('@/components/panels/Reports'),
+  // v12.8: warm CustomerStatements chunk on hover so opening it after hover
+  // renders instantly instead of showing the Suspense fallback for ~300ms.
+  customerstatements: () => import('@/components/panels/CustomerStatements'),
+  credit: () => import('@/components/panels/CreditControl'),
+  servicepayments: () => import('@/components/panels/ServicePayments'),
 }
 
 // Only the panels a user almost always opens first are preloaded eagerly.

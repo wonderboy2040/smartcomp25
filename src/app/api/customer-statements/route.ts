@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { listRows, getRow } from '@/lib/sheets-client'
+import { listRows } from '@/lib/sheets-client'
 import { apiLimiter, getClientIp } from '@/lib/rate-limit'
 
 /**
@@ -61,22 +61,29 @@ export async function GET(req: NextRequest) {
 
     // v12.8 — COMBINED ledger: also pull Jobs + ServicePayments so the customer
     // statement shows BOTH sale invoices and Customer Service jobs on one account.
-    const [customer, allInvoices, allPayments, allJobs, allServicePayments] = await Promise.all([
-      getRow<any>('Customers', String(customerId)).catch(() => null),
+    //
+    // PERF: fetch the full Customers list (which the dashboard has already
+    // prefetched and is warm in the 15s sheets-client cache) instead of calling
+    // getRow('Customers', id) which is a cold single-doc Firestore read every
+    // time the per-id cache expires. Same result, 100x faster on warm cache.
+    const [allCustomers, allInvoices, allPayments, allJobs, allServicePayments] = await Promise.all([
+      listRows<any>('Customers').catch(() => []),
       listRows<any>('Invoices').catch(() => []),
       listRows<any>('Payments').catch(() => []),
       listRows<any>('Jobs').catch(() => []),
       listRows<any>('ServicePayments').catch(() => []),
     ])
 
+    const customer = allCustomers.find((c: any) => String(c.id) === String(customerId)) || null
+
     if (!customer) return NextResponse.json({ error: 'Customer not found' }, { status: 404 })
 
     // --- Invoice-side data (linked via customerId) ---
     const customerInvoices = allInvoices.filter((inv) => String(inv.customerId) === String(customerId))
-    const customerPayments = allPayments.filter((p) => {
-      const inv = customerInvoices.find((i) => String(i.id) === String(p.invoiceId))
-      return !!inv
-    })
+    // O(N+M) Set-based payment lookup instead of O(N*M) nested .find() — keeps
+    // the route fast when a shop has thousands of invoices × thousands of payments.
+    const customerInvoiceIds = new Set(customerInvoices.map((i) => String(i.id || '')))
+    const customerPayments = allPayments.filter((p) => customerInvoiceIds.has(String(p.invoiceId || '')))
 
     // --- Service-job-side data (linked via phone → customer.phone, fallback name) ---
     const custPhone = digitsOnly(customer.phone)
@@ -187,8 +194,11 @@ export async function GET(req: NextRequest) {
     }
 
     // 3. Invoice payments → credit
+    //    Use the invoiceId → invoice Map for O(1) lookup instead of O(N) .find()
+    //    inside the loop — payments list can be large.
+    const invoiceById = new Map(customerInvoices.map((i) => [String(i.id || ''), i]))
     for (const p of rangePayments) {
-      const inv = customerInvoices.find((i) => String(i.id) === String(p.invoiceId))
+      const inv = invoiceById.get(String(p.invoiceId || ''))
       ledger.push({
         date: p.date || p.createdAt || '',
         type: 'Payment',
