@@ -5,15 +5,21 @@ import { apiLimiter, getClientIp } from '@/lib/rate-limit'
 /**
  * GET /api/customer-statements?customerId=xxx&from=YYYY-MM-DD&to=YYYY-MM-DD
  *
- * Builds a unified customer account statement (ledger) with:
- *   - Opening balance (sum of all invoices + service jobs minus all payments before `from`)
+ * Builds a COMBINED customer statement (ledger) with:
+ *   - Opening balance (sum of all invoices/payments + service jobs/service payments before `from`)
  *   - All invoices in the date range (debits)
- *   - All service jobs in the date range (debits)
- *   - All invoice payments & service payments in the date range (credits)
+ *   - All Customer Service jobs in the date range (debits — finalAmount or estimatedAmount)
+ *   - All invoice payments in the date range (credits)
+ *   - All service payments in the date range (credits — linked via jobId)
  *   - Closing balance
- *   - Summary: total invoiced, total service jobs, total billed, total paid, outstanding
+ *   - Summary: total invoiced, total job charges, total paid (invoices), total service paid,
+ *     outstanding — combined across invoices AND service jobs for the same customer.
  *
- * Returns JSON.
+ * Jobs are linked to a customer by phone (digit-only match) primarily,
+ * falling back to exact case-insensitive name match. This is the same
+ * linkage a human would do at the counter — phone is the unique key.
+ *
+ * Returns JSON. The panel renders it; a future PDF can be added.
  */
 
 function parseDate(v: any): number {
@@ -22,11 +28,17 @@ function parseDate(v: any): number {
   return isNaN(d.getTime()) ? 0 : d.getTime()
 }
 
-function normalizePhone(raw: unknown): string {
-  let p = String(raw ?? '').replace(/\D/g, '')
-  if (p.length === 12 && p.startsWith('91')) p = p.slice(2)
-  if (p.length === 11 && p.startsWith('0')) p = p.slice(1)
-  return p
+/** Strip everything except digits — used for phone matching. */
+function digitsOnly(v: any): string {
+  if (!v) return ''
+  return String(v).replace(/\D/g, '')
+}
+
+/** Job amount = finalAmount if set, otherwise estimatedAmount. */
+function jobAmount(j: any): number {
+  const final = Number(j?.finalAmount) || 0
+  if (final > 0) return final
+  return Number(j?.estimatedAmount) || 0
 }
 
 export async function GET(req: NextRequest) {
@@ -47,6 +59,8 @@ export async function GET(req: NextRequest) {
     const fromMs = new Date(from + 'T00:00:00').getTime()
     const toMs = new Date(to + 'T23:59:59').getTime()
 
+    // v12.8 — COMBINED ledger: also pull Jobs + ServicePayments so the customer
+    // statement shows BOTH sale invoices and Customer Service jobs on one account.
     const [customer, allInvoices, allPayments, allJobs, allServicePayments] = await Promise.all([
       getRow<any>('Customers', String(customerId)).catch(() => null),
       listRows<any>('Invoices').catch(() => []),
@@ -57,120 +71,88 @@ export async function GET(req: NextRequest) {
 
     if (!customer) return NextResponse.json({ error: 'Customer not found' }, { status: 404 })
 
-    const custId = String(customer.id || customerId)
-    const custPhone = normalizePhone(customer.phone)
+    // --- Invoice-side data (linked via customerId) ---
+    const customerInvoices = allInvoices.filter((inv) => String(inv.customerId) === String(customerId))
+    const customerPayments = allPayments.filter((p) => {
+      const inv = customerInvoices.find((i) => String(i.id) === String(p.invoiceId))
+      return !!inv
+    })
+
+    // --- Service-job-side data (linked via phone → customer.phone, fallback name) ---
+    const custPhone = digitsOnly(customer.phone)
     const custName = String(customer.name || '').trim().toLowerCase()
 
-    // 1. Match customer invoices
-    const customerInvoices = allInvoices.filter((inv) => {
-      if (String(inv.customerId) === custId) return true
-      if (custPhone && custPhone.length >= 10 && normalizePhone(inv.customerPhone) === custPhone) return true
-      if (custName && custName.length >= 2 && String(inv.customerName || '').trim().toLowerCase() === custName) return true
-      return false
-    })
-
-    // 2. Match customer invoice payments
-    const customerInvoiceIds = new Set(customerInvoices.map((inv) => String(inv.id)))
-    const customerInvoiceNumbers = new Set(customerInvoices.map((inv) => String(inv.number)).filter(Boolean))
-
-    const customerPayments = allPayments.filter((p) => {
-      if (p.invoiceId && (customerInvoiceIds.has(String(p.invoiceId)) || customerInvoiceNumbers.has(String(p.invoiceId)))) return true
-      if (String(p.customerId) === custId) return true
-      if (custPhone && custPhone.length >= 10 && normalizePhone(p.customerPhone) === custPhone) return true
-      return false
-    })
-
-    // 3. Match customer service jobs
     const customerJobs = allJobs.filter((j) => {
-      if (String(j.customerId) === custId) return true
-      if (custPhone && custPhone.length >= 10 && (normalizePhone(j.customerMobile) === custPhone || normalizePhone(j.customerPhone) === custPhone)) return true
-      if (custName && custName.length >= 2 && String(j.customerName || '').trim().toLowerCase() === custName) return true
-      return false
-    })
-
-    // 4. Match customer service payments (including recorded + fallback from jobs)
-    const customerJobIds = new Set(customerJobs.map((j) => String(j.jobId)).filter(Boolean))
-    const customerJobRowIds = new Set(customerJobs.map((j) => String(j.id)).filter(Boolean))
-
-    const recordedServicePayments = allServicePayments.filter((p) => {
-      if (p.jobId && (customerJobIds.has(String(p.jobId)) || customerJobRowIds.has(String(p.jobId)))) return true
-      if (custName && custName.length >= 2 && String(p.customerName || '').trim().toLowerCase() === custName) return true
-      return false
-    })
-
-    const servicePaymentsList: any[] = [...recordedServicePayments]
-    const jobsWithRecordedPayments = new Set(recordedServicePayments.map((p) => String(p.jobId)))
-
-    for (const j of customerJobs) {
-      const jKey = String(j.jobId || j.id)
-      if (!jobsWithRecordedPayments.has(jKey)) {
-        const adv = Number(j.advanceAmount) || 0
-        const paid = Number(j.paidAmount) || 0
-        if (adv > 0) {
-          servicePaymentsList.push({
-            id: `adv_${jKey}`,
-            jobId: j.jobId,
-            customerName: j.customerName,
-            amount: adv,
-            mode: j.advanceMode || j.paymentMode || 'Cash',
-            type: 'Advance',
-            date: j.createdAt || j.date || '',
-            notes: 'Advance payment',
-          })
-        }
-        if (paid > 0) {
-          servicePaymentsList.push({
-            id: `paid_${jKey}`,
-            jobId: j.jobId,
-            customerName: j.customerName,
-            amount: paid,
-            mode: j.paymentMode || 'Cash',
-            type: j.paymentType || 'Final',
-            date: j.completedDate || j.deliveredAt || j.updatedAt || j.createdAt || j.date || '',
-            notes: 'Service payment',
-          })
-        }
+      // Match by phone (preferred) — strip non-digits and compare last 10 digits
+      // to tolerate 91 prefix etc.
+      const jobPhone = digitsOnly(j?.customerMobile)
+      if (jobPhone && custPhone) {
+        const jTail = jobPhone.slice(-10)
+        const cTail = custPhone.slice(-10)
+        if (jTail && cTail && jTail === cTail) return true
       }
-    }
+      // Fallback: exact name match (case-insensitive, trimmed)
+      if (custName && String(j?.customerName || '').trim().toLowerCase() === custName) return true
+      return false
+    })
 
-    // Opening balance = (invoices + service jobs before `from`) - (invoice payments + service payments before `from`)
+    // Only collect non-empty jobIds so we never accidentally match a service
+    // payment that itself has an empty jobId against an empty entry in the set.
+    const customerJobIds = new Set(
+      customerJobs
+        .map((j) => String(j.jobId || j.id || ''))
+        .filter((id) => id.length > 0)
+    )
+    const customerServicePayments = allServicePayments.filter((p) => {
+      // Match by jobId first (most reliable) — guard against empty jobId.
+      const pJobId = String(p.jobId || '')
+      if (pJobId && customerJobIds.has(pJobId)) return true
+      // Fallback: phone match against customer
+      const pPhone = digitsOnly(p?.customerMobile || p?.phone)
+      if (pPhone && custPhone && pPhone.slice(-10) === custPhone.slice(-10)) return true
+      // Fallback: name match
+      if (custName && String(p?.customerName || '').trim().toLowerCase() === custName) return true
+      return false
+    })
+
+    // --- Opening balance = (invoiced + job charges) − (payments + service payments) before `from` ---
     const openingInvoices = customerInvoices.filter((inv) => parseDate(inv.date || inv.createdAt) < fromMs)
-    const openingJobs = customerJobs.filter((j) => parseDate(j.createdAt || j.date || j.completedDate) < fromMs)
-
     const openingPayments = customerPayments.filter((p) => parseDate(p.date || p.createdAt) < fromMs)
-    const openingServicePayments = servicePaymentsList.filter((p) => parseDate(p.date || p.createdAt) < fromMs)
+    const openingJobs = customerJobs.filter((j) => {
+      // Use completedDate if available (when the charge was finalized), else createdAt
+      const t = parseDate(j.completedDate || j.createdAt)
+      return t < fromMs
+    })
+    const openingServicePayments = customerServicePayments.filter((p) => parseDate(p.date || p.createdAt) < fromMs)
 
     const openingInvoiced = openingInvoices.reduce((s, i) => s + (Number(i.grandTotal) || 0), 0)
-    const openingJobsAmount = openingJobs.reduce((s, j) => s + (Number(j.finalAmount) || Number(j.estimatedAmount) || 0), 0)
-    const openingTotalDebits = openingInvoiced + openingJobsAmount
-
-    const openingInvoicePaid = openingPayments.reduce((s, p) => s + (Number(p.amount) || 0), 0)
+    const openingJobCharges = openingJobs.reduce((s, j) => s + jobAmount(j), 0)
+    const openingPaid = openingPayments.reduce((s, p) => s + (Number(p.amount) || 0), 0)
     const openingServicePaid = openingServicePayments.reduce((s, p) => s + (Number(p.amount) || 0), 0)
-    const openingTotalCredits = openingInvoicePaid + openingServicePaid
+    const openingBalance = (openingInvoiced + openingJobCharges) - (openingPaid + openingServicePaid)
 
-    const openingBalance = openingTotalDebits - openingTotalCredits
-
-    // Transactions in date range
+    // --- Range transactions (in [from, to]) ---
     const rangeInvoices = customerInvoices.filter((inv) => {
       const t = parseDate(inv.date || inv.createdAt)
-      return t >= fromMs && t <= toMs
-    })
-    const rangeJobs = customerJobs.filter((j) => {
-      const t = parseDate(j.createdAt || j.date || j.completedDate)
       return t >= fromMs && t <= toMs
     })
     const rangePayments = customerPayments.filter((p) => {
       const t = parseDate(p.date || p.createdAt)
       return t >= fromMs && t <= toMs
     })
-    const rangeServicePayments = servicePaymentsList.filter((p) => {
+    const rangeJobs = customerJobs.filter((j) => {
+      const t = parseDate(j.completedDate || j.createdAt)
+      return t >= fromMs && t <= toMs
+    })
+    const rangeServicePayments = customerServicePayments.filter((p) => {
       const t = parseDate(p.date || p.createdAt)
       return t >= fromMs && t <= toMs
     })
 
-    // Merge into a single ledger sorted by date
+    // --- Merge into a single ledger sorted by date ---
     const ledger: any[] = []
 
+    // 1. Sale invoices → debit (customer owes the grand total)
     for (const inv of rangeInvoices) {
       ledger.push({
         date: inv.date || inv.createdAt || '',
@@ -183,74 +165,91 @@ export async function GET(req: NextRequest) {
       })
     }
 
+    // 2. Customer Service jobs → debit (customer owes the service charge)
+    //    Skip jobs with zero amount (no estimate, no final) to keep ledger clean.
     for (const j of rangeJobs) {
-      const jobAmount = Number(j.finalAmount) || Number(j.estimatedAmount) || 0
-      const details = [j.deviceType, j.brandModel, j.problemDesc].filter(Boolean).join(' - ')
+      const amt = jobAmount(j)
+      if (amt <= 0) continue
+      const jobId = String(j.jobId || j.id || '')
+      const device = String(j.deviceType || '').trim()
+      const brand = String(j.brandModel || '').trim()
+      const parts = [device, brand].filter(Boolean).join(' / ')
+      const devSuffix = parts ? ` — ${parts}` : ''
       ledger.push({
-        date: j.createdAt || j.date || '',
+        date: j.completedDate || j.createdAt || '',
         type: 'Service Job',
-        number: String(j.jobId || ''),
-        description: `Service Job ${j.jobId || ''}${details ? ' (' + details + ')' : ''}`,
-        debit: jobAmount,
+        number: jobId,
+        description: `Service Job ${jobId}${devSuffix}`,
+        debit: amt,
         credit: 0,
-        reference: String(j.id || j.jobId || ''),
-        status: j.status || '',
+        reference: String(j.id || ''),
       })
     }
 
+    // 3. Invoice payments → credit
     for (const p of rangePayments) {
-      const inv = customerInvoices.find((i) => String(i.id) === String(p.invoiceId) || String(i.number) === String(p.invoiceId))
+      const inv = customerInvoices.find((i) => String(i.id) === String(p.invoiceId))
       ledger.push({
         date: p.date || p.createdAt || '',
         type: 'Payment',
-        number: String(inv?.number || p.reference || ''),
-        description: `Payment for Invoice ${inv?.number || ''} (${p.type || p.mode || 'Cash'})`,
+        number: String(inv?.number || ''),
+        description: `Payment for ${inv?.number || ''} (${p.type || 'Cash'})`,
         debit: 0,
         credit: Number(p.amount) || 0,
         reference: String(p.id || ''),
       })
     }
 
+    // 4. Service payments → credit (advance / partial / final against a job)
     for (const p of rangeServicePayments) {
+      const jobId = String(p.jobId || '')
       ledger.push({
         date: p.date || p.createdAt || '',
-        type: 'Payment (Service)',
-        number: String(p.jobId || ''),
-        description: `Payment for Service ${p.jobId || ''} (${p.type || 'Service'} - ${p.mode || 'Cash'})${p.notes ? ' - ' + p.notes : ''}`,
+        type: 'Service Payment',
+        number: jobId,
+        description: `Payment for ${jobId || 'service'} (${p.type || p.mode || 'Cash'})`,
         debit: 0,
         credit: Number(p.amount) || 0,
         reference: String(p.id || ''),
       })
     }
 
-    ledger.sort((a, b) => parseDate(a.date) - parseDate(b.date))
+    // Sort ascending by date; secondary sort by debit-then-credit so a debit
+    // and credit on the same day display in a stable order.
+    ledger.sort((a, b) => {
+      const da = parseDate(a.date)
+      const db = parseDate(b.date)
+      if (da !== db) return da - db
+      // Debits before credits on same date (charges before payments)
+      if (a.debit > 0 && b.credit > 0) return -1
+      if (a.credit > 0 && b.debit > 0) return 1
+      return 0
+    })
 
-    // Running balance
+    // --- Running balance ---
     let running = openingBalance
     const ledgerWithBalance = ledger.map((entry) => {
       running += entry.debit - entry.credit
       return { ...entry, balance: running }
     })
 
+    // --- Summary totals (range) ---
     const totalInvoiced = rangeInvoices.reduce((s, i) => s + (Number(i.grandTotal) || 0), 0)
-    const totalJobs = rangeJobs.reduce((s, j) => s + (Number(j.finalAmount) || Number(j.estimatedAmount) || 0), 0)
-    const totalBilled = totalInvoiced + totalJobs
+    const totalJobCharges = rangeJobs.reduce((s, j) => s + jobAmount(j), 0)
+    const totalPaid = rangePayments.reduce((s, p) => s + (Number(p.amount) || 0), 0)
+    const totalServicePaid = rangeServicePayments.reduce((s, p) => s + (Number(p.amount) || 0), 0)
 
-    const totalInvoicePaid = rangePayments.reduce((s, p) => s + (Number(p.amount) || 0), 0)
-    const totalJobPaid = rangeServicePayments.reduce((s, p) => s + (Number(p.amount) || 0), 0)
-    const totalPaid = totalInvoicePaid + totalJobPaid
+    const totalBilled = totalInvoiced + totalJobCharges
+    const totalReceived = totalPaid + totalServicePaid
+    const netMovement = totalBilled - totalReceived
+    const closingBalance = openingBalance + netMovement
 
-    const closingBalance = openingBalance + totalBilled - totalPaid
-
+    // --- All-time outstanding (combined invoices + jobs − all payments) ---
     const allInvoiced = customerInvoices.reduce((s, i) => s + (Number(i.grandTotal) || 0), 0)
-    const allJobsAmount = customerJobs.reduce((s, j) => s + (Number(j.finalAmount) || Number(j.estimatedAmount) || 0), 0)
-    const allDebits = allInvoiced + allJobsAmount
-
-    const allInvoicePaid = customerPayments.reduce((s, p) => s + (Number(p.amount) || 0), 0)
-    const allJobPaid = servicePaymentsList.reduce((s, p) => s + (Number(p.amount) || 0), 0)
-    const allCredits = allInvoicePaid + allJobPaid
-
-    const totalOutstanding = allDebits - allCredits
+    const allJobCharges = customerJobs.reduce((s, j) => s + jobAmount(j), 0)
+    const allPaid = customerPayments.reduce((s, p) => s + (Number(p.amount) || 0), 0)
+    const allServicePaid = customerServicePayments.reduce((s, p) => s + (Number(p.amount) || 0), 0)
+    const totalOutstanding = (allInvoiced + allJobCharges) - (allPaid + allServicePaid)
 
     return NextResponse.json({
       customer: {
@@ -266,21 +265,13 @@ export async function GET(req: NextRequest) {
       closingBalance,
       summary: {
         totalInvoiced,
-        totalJobs,
+        totalJobCharges,
         totalBilled,
-        totalInvoicePaid,
-        totalJobPaid,
         totalPaid,
-        netMovement: totalBilled - totalPaid,
+        totalServicePaid,
+        totalReceived,
+        netMovement,
         totalOutstanding,
-      },
-      counts: {
-        invoices: rangeInvoices.length,
-        jobs: rangeJobs.length,
-        invoicePayments: rangePayments.length,
-        servicePayments: rangeServicePayments.length,
-        totalInvoices: customerInvoices.length,
-        totalJobs: customerJobs.length,
       },
       ledger: ledgerWithBalance,
     })
@@ -288,4 +279,3 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: e?.message }, { status: 500 })
   }
 }
-
