@@ -352,6 +352,40 @@ export function CustomersPanel() {
                   </Table>
                 </div>
               </div>
+
+              {/* Service Jobs */}
+              <div>
+                <p className="text-sm font-medium text-slate-700 mb-1">Service Jobs ({ledgerCustomer?.jobs?.length || 0})</p>
+                <div className="max-h-40 overflow-y-auto border border-slate-200 rounded-lg">
+                  <Table>
+                    <TableHeader><TableRow className="bg-slate-50">
+                      <TableHead className="text-xs">Job ID</TableHead>
+                      <TableHead className="text-xs">Device</TableHead>
+                      <TableHead className="text-xs text-right">Amount</TableHead>
+                      <TableHead className="text-xs text-center">Status</TableHead>
+                    </TableRow></TableHeader>
+                    <TableBody>
+                      {(ledgerCustomer?.jobs || []).length === 0 ? (
+                        <TableRow><TableCell colSpan={4} className="text-center py-3 text-xs text-slate-400">No service jobs</TableCell></TableRow>
+                      ) : ledgerCustomer.jobs.map((j: any) => (
+                        <TableRow key={j.id}>
+                          <TableCell className="font-mono text-xs font-semibold text-slate-900">{j.jobId}</TableCell>
+                          <TableCell className="text-xs text-slate-700">
+                            <span className="font-medium">{j.deviceType || 'Device'}</span>
+                            {j.brandModel ? ` · ${j.brandModel}` : ''}
+                          </TableCell>
+                          <TableCell className="text-right text-xs font-semibold text-slate-900">
+                            {formatCurrency(Number(j.finalAmount) || Number(j.estimatedAmount) || 0)}
+                          </TableCell>
+                          <TableCell className="text-center">
+                            <Badge variant="outline" className="text-[9px] bg-blue-50 text-blue-700 border-blue-200">{j.status || 'Pending'}</Badge>
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </div>
+              </div>
             </div>
           )}
           <DialogFooter>
