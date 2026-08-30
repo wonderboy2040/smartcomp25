@@ -48,24 +48,29 @@ function openDB(): Promise<IDBDatabase> {
 export async function addToQueue(op: Omit<QueueOperation, 'id' | 'timestamp' | 'retries'>): Promise<string> {
   try {
     const db = await openDB()
-    const id = `queue_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`
-    const fullOp: QueueOperation = {
-      ...op,
-      id,
-      timestamp: Date.now(),
-      retries: 0,
+    // v13: enforce max queue size to prevent unbounded growth when offline for long
+    const existing = await getQueue()
+    const MAX_QUEUE_SIZE = 500
+    if (existing.length >= MAX_QUEUE_SIZE) {
+      // Drop oldest items (FIFO eviction) — keeps newest work intact
+      const sorted = existing.sort((a, b) => a.timestamp - b.timestamp)
+      const toDrop = sorted.slice(0, existing.length - MAX_QUEUE_SIZE + 1)
+      for (const old of toDrop) {
+        notifyQueueDrop(old, 'Queue size limit — oldest evicted')
+        await removeFromQueue(old.id).catch(() => {})
+      }
     }
-    
+    const id = `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`
+    const newOp: QueueOperation = { ...op, id, timestamp: Date.now(), retries: 0 }
     return new Promise((resolve, reject) => {
       const tx = db.transaction(STORE_NAME, 'readwrite')
       const store = tx.objectStore(STORE_NAME)
-      const req = store.add(fullOp)
+      const req = store.add(newOp)
       req.onsuccess = () => resolve(id)
       req.onerror = () => reject(req.error)
     })
-  } catch (e) {
-    console.warn('Failed to add to offline queue:', e)
-    throw e
+  } catch {
+    return ''
   }
 }
 
@@ -110,7 +115,14 @@ export async function clearQueue(): Promise<void> {
   } catch {}
 }
 
-// Client-side number generation - INSTANT, no server needed
+// Client-side TEMPORARY number generation - INSTANT, no server needed
+// NOTE (v13): These are PLACEHOLDER numbers used only for the optimistic UI.
+// The server ALWAYS assigns the final number on create. To make the
+// transition seamless, the client marks queued ops with `clientNumber`
+// which the server returns in the response — the UI then reconciles.
+// This eliminates the previous collision bug where client-generated
+// SCSS/fy/timestamp+random numbers conflicted with server-assigned
+// SCSS/fy/seq numbers.
 export function generateClientInvoiceNumber(): string {
   const now = new Date()
   const year = now.getFullYear()
@@ -118,23 +130,29 @@ export function generateClientInvoiceNumber(): string {
   const fyStart = month >= 4 ? year : year - 1
   const fyEnd = fyStart + 1
   const fyShort = `${String(fyStart).slice(2)}-${String(fyEnd).slice(2)}`
-  // Use timestamp last 6 digits + random 3 digits for uniqueness
+  // Prefix with 'DRAFT-' so the server can detect and replace it
   const timestamp = Date.now().toString().slice(-6)
   const random = Math.floor(Math.random() * 900 + 100)
-  return `SCSS/${fyShort}/${timestamp}${random}`.slice(0, 18) // Keep reasonable length
+  return `DRAFT-SCSS/${fyShort}/${timestamp}${random}`.slice(0, 22)
 }
 
 export function generateClientQuotationNumber(): string {
   const timestamp = Date.now().toString().slice(-6)
   const random = Math.floor(Math.random() * 900 + 100)
-  return `SCSS/QT/${timestamp}${random}`
+  return `DRAFT-SCSS/QT/${timestamp}${random}`
 }
 
 export function generateClientJobNumber(): string {
   const now = new Date()
   const dateStr = `${now.getFullYear()}${String(now.getMonth()+1).padStart(2,'0')}${String(now.getDate()).padStart(2,'0')}`
   const random = String(Math.floor(Math.random() * 900 + 100)).padStart(3, '0')
-  return `SC${dateStr}${random}`
+  return `DRAFT-SC${dateStr}${random}`
+}
+
+// Helper: detect if a number is a client-side draft placeholder
+export function isDraftNumber(num: string | undefined | null): boolean {
+  if (!num) return false
+  return String(num).startsWith('DRAFT-')
 }
 
 // Background sync processor

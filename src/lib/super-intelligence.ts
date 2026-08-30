@@ -1065,3 +1065,550 @@ export function generateSuperIntelligence(input: IntelligenceInput) {
     generatedAt: new Date().toISOString(),
   }
 }
+
+// ============================================================================
+// v13 NEW: Smart Inventory Demand Forecast + RFM/Cohort/Churn Analytics
+// ============================================================================
+
+export interface InventoryForecast {
+  itemId: string
+  itemName: string
+  currentStock: number
+  averageDailyDemand: number
+  daysOfStock: number
+  predictedStockoutDate: string | null
+  reorderSuggestion: {
+    shouldReorder: boolean
+    suggestedQty: number
+    urgency: 'none' | 'low' | 'medium' | 'high' | 'critical'
+    reason: string
+  }
+  seasonalityFactor: number // >1 means upcoming season boosts demand
+  trend: 'increasing' | 'decreasing' | 'stable'
+  thirtyDayForecast: { date: string; predictedDemand: number }[]
+}
+
+/**
+ * Smart Inventory Demand Forecast
+ *
+ * Combines:
+ *   - 30-day moving average baseline
+ *   - Linear trend (increasing/decreasing demand)
+ *   - Seasonality multiplier (festivals, month-of-year patterns)
+ *   - Supplier lead time (default 7 days)
+ *
+ * Returns per-item forecast + reorder recommendation.
+ */
+export function forecastInventoryDemand(
+  items: Item[],
+  invoices: Invoice[],
+  options: { leadTimeDays?: number; forecastDays?: number } = {},
+): InventoryForecast[] {
+  const leadTimeDays = options.leadTimeDays ?? 7
+  const forecastDays = options.forecastDays ?? 30
+  const now = new Date()
+
+  // Aggregate per-item sales over last 90 days for trend
+  const ninetyAgo = new Date(now.getTime() - 90 * 24 * 60 * 60 * 1000)
+
+  // itemId -> daily quantities sold over last 90 days
+  const dailySalesByItem = new Map<string, number[]>()
+
+  for (const inv of invoices) {
+    const invDate = new Date(inv?.date || inv?.createdAt || 0)
+    if (invDate < ninetyAgo || invDate > now) continue
+    let itemsJson: any[] = []
+    try {
+      itemsJson = JSON.parse(inv?.itemsJson || '[]')
+    } catch {
+      itemsJson = []
+    }
+    const dayIdx = Math.floor((invDate.getTime() - ninetyAgo.getTime()) / (24 * 60 * 60 * 1000))
+    for (const line of itemsJson) {
+      const itemId = String(line?.itemId || '')
+      if (!itemId) continue
+      const qty = Number(line?.quantity || 0)
+      if (!qty) continue
+      if (!dailySalesByItem.has(itemId)) dailySalesByItem.set(itemId, new Array(90).fill(0))
+      const arr = dailySalesByItem.get(itemId)!
+      if (dayIdx >= 0 && dayIdx < 90) arr[dayIdx] += qty
+    }
+  }
+
+  // Get festival calendar effect — Diwali (Oct/Nov), Christmas (Dec), New Year (Jan)
+  // Ramadan varies; we approximate. New school year (Apr-May), back to school (Jun).
+  function getSeasonalityMultiplier(monthFromNow: number): number {
+    const targetMonth = (now.getMonth() + monthFromNow) % 12
+    const monthFactors = [
+      1.15, // Jan — New Year
+      0.95, // Feb
+      0.95, // Mar
+      1.10, // Apr — New FY
+      1.20, // May — Back to school
+      1.05, // Jun
+      0.90, // Jul
+      0.95, // Aug
+      1.10, // Sep — Festival start
+      1.35, // Oct — Diwali
+      1.30, // Nov — Diwali continues
+      1.25, // Dec — Christmas + Year-end
+    ]
+    return monthFactors[targetMonth]
+  }
+
+  const forecasts: InventoryForecast[] = []
+
+  for (const item of items) {
+    const itemId = String(item?.id || '')
+    if (!itemId) continue
+    const dailySales = dailySalesByItem.get(itemId) || new Array(90).fill(0)
+
+    // 30-day average (most recent)
+    const last30 = dailySales.slice(-30)
+    const total30 = last30.reduce((a, b) => a + b, 0)
+    const avgDaily = total30 / 30
+
+    // 90-day trend: compare first 30 vs last 30
+    const first30 = dailySales.slice(0, 30)
+    const first30Total = first30.reduce((a, b) => a + b, 0)
+    const trendRatio = first30Total > 0 ? total30 / first30Total : 1
+    let trend: 'increasing' | 'decreasing' | 'stable' = 'stable'
+    if (trendRatio > 1.2) trend = 'increasing'
+    else if (trendRatio < 0.8) trend = 'decreasing'
+
+    // Predicted daily demand for next 30 days (with trend + seasonality)
+    const thirtyDayForecast: { date: string; predictedDemand: number }[] = []
+    let cumulativePredicted = 0
+    for (let i = 0; i < forecastDays; i++) {
+      const futureDate = new Date(now.getTime() + i * 24 * 60 * 60 * 1000)
+      const monthFromNow = Math.floor(i / 30)
+      const seasonality = getSeasonalityMultiplier(monthFromNow)
+      const trendAdjust = trend === 'increasing' ? 1 + 0.01 * i : trend === 'decreasing' ? 1 - 0.01 * i : 1
+      const predicted = Math.max(0, avgDaily * seasonality * trendAdjust)
+      cumulativePredicted += predicted
+      thirtyDayForecast.push({
+        date: futureDate.toISOString().slice(0, 10),
+        predictedDemand: Math.round(predicted * 100) / 100,
+      })
+    }
+
+    const currentStock = Number(item?.quantity || 0)
+    const avgDailyWithSeasonality = cumulativePredicted / forecastDays
+    const daysOfStock = avgDailyWithSeasonality > 0 ? currentStock / avgDailyWithSeasonality : 999
+
+    // Predicted stockout date
+    let stockoutDate: string | null = null
+    if (avgDailyWithSeasonality > 0 && currentStock > 0) {
+      const stockoutMs = now.getTime() + daysOfStock * 24 * 60 * 60 * 1000
+      stockoutDate = new Date(stockoutMs).toISOString().slice(0, 10)
+    } else if (currentStock <= 0) {
+      stockoutDate = now.toISOString().slice(0, 10)
+    }
+
+    // Reorder suggestion
+    const safetyStock = avgDailyWithSeasonality * leadTimeDays * 1.5 // 150% safety margin
+    const reorderPoint = avgDailyWithSeasonality * (leadTimeDays + 7) + safetyStock
+    const shouldReorder = currentStock <= reorderPoint
+    const suggestedQty = shouldReorder
+      ? Math.ceil(Math.max(reorderPoint * 2 - currentStock, avgDailyWithSeasonality * 30))
+      : 0
+
+    let urgency: 'none' | 'low' | 'medium' | 'high' | 'critical' = 'none'
+    let reason = ''
+    if (currentStock <= 0) {
+      urgency = 'critical'
+      reason = 'Out of stock — order immediately'
+    } else if (daysOfStock <= leadTimeDays) {
+      urgency = 'critical'
+      reason = `Will stockout in ${Math.ceil(daysOfStock)} days — order now`
+    } else if (daysOfStock <= leadTimeDays + 3) {
+      urgency = 'high'
+      reason = `Will stockout in ${Math.ceil(daysOfStock)} days — order soon`
+    } else if (daysOfStock <= leadTimeDays + 7) {
+      urgency = 'medium'
+      reason = `Stockout in ${Math.ceil(daysOfStock)} days — plan reorder`
+    } else if (shouldReorder) {
+      urgency = 'low'
+      reason = `Below reorder point (${Math.round(reorderPoint)} units)`
+    } else {
+      urgency = 'none'
+      reason = `${Math.round(daysOfStock)} days of stock — sufficient`
+    }
+
+    forecasts.push({
+      itemId,
+      itemName: String(item?.name || ''),
+      currentStock,
+      averageDailyDemand: Math.round(avgDailyWithSeasonality * 100) / 100,
+      daysOfStock: Math.round(daysOfStock * 10) / 10,
+      predictedStockoutDate: stockoutDate,
+      reorderSuggestion: { shouldReorder, suggestedQty, urgency, reason },
+      seasonalityFactor: getSeasonalityMultiplier(1),
+      trend,
+      thirtyDayForecast: thirtyDayForecast.slice(0, 14), // limit to 14 days for response size
+    })
+  }
+
+  // Sort: critical urgency first
+  const urgencyRank = { critical: 0, high: 1, medium: 2, low: 3, none: 4 }
+  forecasts.sort((a, b) => urgencyRank[a.reorderSuggestion.urgency] - urgencyRank[b.reorderSuggestion.urgency])
+
+  return forecasts
+}
+
+// ============================================================================
+// RFM Analysis (Recency, Frequency, Monetary)
+// ============================================================================
+
+export interface RFMSegment {
+  customerId: string
+  customerName: string
+  phone: string
+  recencyDays: number
+  frequency: number
+  monetary: number
+  rScore: number // 1-5
+  fScore: number
+  mScore: number
+  rfmScore: number // combined 111-555
+  segment: 'Champions' | 'Loyal' | 'Potential Loyalists' | 'New Customers' | 'Promising' | 'Need Attention' | 'About to Sleep' | 'At Risk' | 'Cannot Lose Them' | 'Hibernating' | 'Lost'
+  churnProbability: number // 0-1
+  expectedLTV: number
+  recommendedAction: string
+}
+
+/**
+ * RFM analysis with auto-bucketed scoring (quintiles).
+ *
+ * Uses 90-day lookback. Customers with no purchases in last 90 days are
+ * classified as 'Lost' or 'Hibernating' depending on prior frequency.
+ */
+export function analyzeRFM(customers: Customer[], invoices: Invoice[]): RFMSegment[] {
+  const now = new Date()
+
+  // Build per-customer stats
+  const statsByCustomer = new Map<string, {
+    customerId: string
+    customerName: string
+    phone: string
+    lastPurchaseDate: Date | null
+    frequency: number
+    monetary: number
+  }>()
+
+  for (const c of customers) {
+    const cid = String(c?.id || '')
+    if (!cid) continue
+    statsByCustomer.set(cid, {
+      customerId: cid,
+      customerName: String(c?.name || ''),
+      phone: String(c?.phone || ''),
+      lastPurchaseDate: null,
+      frequency: 0,
+      monetary: 0,
+    })
+  }
+
+  for (const inv of invoices) {
+    const cid = String(inv?.customerId || '')
+    if (!cid) continue
+    const stat = statsByCustomer.get(cid)
+    if (!stat) continue
+    stat.frequency++
+    stat.monetary += Number(inv?.grandTotal || 0)
+    const invDate = new Date(inv?.date || inv?.createdAt || 0)
+    if (!stat.lastPurchaseDate || invDate > stat.lastPurchaseDate) {
+      stat.lastPurchaseDate = invDate
+    }
+  }
+
+  const allStats = Array.from(statsByCustomer.values()).filter((s) => s.frequency > 0)
+  if (allStats.length === 0) return []
+
+  // Compute quintile thresholds
+  const recencies = allStats.map((s) => s.lastPurchaseDate ? Math.floor((now.getTime() - s.lastPurchaseDate.getTime()) / (24 * 60 * 60 * 1000)) : 999)
+  const frequencies = allStats.map((s) => s.frequency)
+  const monetaries = allStats.map((s) => s.monetary)
+
+  function percentile(arr: number[], p: number): number {
+    const sorted = [...arr].sort((a, b) => a - b)
+    const idx = Math.floor((p / 100) * sorted.length)
+    return sorted[idx] || 0
+  }
+
+  const rQuartiles = [percentile(recencies, 80), percentile(recencies, 60), percentile(recencies, 40), percentile(recencies, 20)]
+  const fQuartiles = [percentile(frequencies, 20), percentile(frequencies, 40), percentile(frequencies, 60), percentile(frequencies, 80)]
+  const mQuartiles = [percentile(monetaries, 20), percentile(monetaries, 40), percentile(monetaries, 60), percentile(monetaries, 80)]
+
+  function scoreR(rDays: number): number {
+    // Lower recency = higher score
+    if (rDays <= rQuartiles[0]) return 5
+    if (rDays <= rQuartiles[1]) return 4
+    if (rDays <= rQuartiles[2]) return 3
+    if (rDays <= rQuartiles[3]) return 2
+    return 1
+  }
+  function scoreF(f: number): number {
+    if (f >= fQuartiles[3]) return 5
+    if (f >= fQuartiles[2]) return 4
+    if (f >= fQuartiles[1]) return 3
+    if (f >= fQuartiles[0]) return 2
+    return 1
+  }
+  function scoreM(m: number): number {
+    if (m >= mQuartiles[3]) return 5
+    if (m >= mQuartiles[2]) return 4
+    if (m >= mQuartiles[1]) return 3
+    if (m >= mQuartiles[0]) return 2
+    return 1
+  }
+
+  function classifySegment(r: number, f: number, m: number): RFMSegment['segment'] {
+    if (r === 5 && f >= 4 && m >= 4) return 'Champions'
+    if (r >= 4 && f >= 4) return 'Loyal'
+    if (r >= 4 && f >= 3) return 'Potential Loyalists'
+    if (r === 5 && f === 1) return 'New Customers'
+    if (r === 4 && f === 1) return 'Promising'
+    if (r === 3 && f >= 3) return 'Need Attention'
+    if (r === 3 && f <= 2) return 'About to Sleep'
+    if (r === 2 && f >= 2) return 'At Risk'
+    if (r === 1 && f >= 4 && m >= 4) return 'Cannot Lose Them'
+    if (r === 1 && f >= 2) return 'Hibernating'
+    if (r === 1 && f === 1) return 'Lost'
+    return 'Need Attention'
+  }
+
+  const segments: RFMSegment[] = allStats.map((s) => {
+    const recencyDays = s.lastPurchaseDate
+      ? Math.floor((now.getTime() - s.lastPurchaseDate.getTime()) / (24 * 60 * 60 * 1000))
+      : 999
+
+    const rScore = scoreR(recencyDays)
+    const fScore = scoreF(s.frequency)
+    const mScore = scoreM(s.monetary)
+    const rfmScore = rScore * 100 + fScore * 10 + mScore
+    const segment = classifySegment(rScore, fScore, mScore)
+
+    // Churn probability: high recency + low frequency = high churn risk
+    let churnProb = 0
+    if (recencyDays > 90) churnProb = 0.95
+    else if (recencyDays > 60) churnProb = 0.7
+    else if (recencyDays > 30) churnProb = 0.4
+    else churnProb = 0.1
+    // Adjust for frequency (loyal customers churn less)
+    if (fScore >= 4) churnProb *= 0.6
+    else if (fScore >= 3) churnProb *= 0.8
+
+    // Expected LTV = avg order value * expected future purchases
+    const avgOrder = s.monetary / Math.max(1, s.frequency)
+    const expectedFuturePurchases = segment === 'Champions' ? 12 : segment === 'Loyal' ? 8 : segment === 'Lost' ? 0 : 4
+    const expectedLTV = Math.round(avgOrder * expectedFuturePurchases)
+
+    // Recommended action per segment
+    let action = ''
+    switch (segment) {
+      case 'Champions':
+        action = 'Reward with exclusive offers + ask for Google review'
+        break
+      case 'Loyal':
+        action = 'Send birthday greetings + upsell complementary products'
+        break
+      case 'Potential Loyalists':
+        action = 'Onboard with welcome series + 10% repeat purchase coupon'
+        break
+      case 'New Customers':
+        action = 'Send welcome email + product education content'
+        break
+      case 'Promising':
+        action = 'Create brand awareness + free guide download'
+        break
+      case 'Need Attention':
+        action = 'Send price-drop alerts + limited-time offers'
+        break
+      case 'About to Sleep':
+        action = 'Send win-back discount coupon (15% off)'
+        break
+      case 'At Risk':
+        action = 'Send "we miss you" + 20% off win-back offer'
+        break
+      case 'Cannot Lose Them':
+        action = 'Personal call from owner + special renewal offer'
+        break
+      case 'Hibernating':
+        action = 'Reboot with "we are back" + clearance sale alert'
+        break
+      case 'Lost':
+        action = 'Move to inactive list + last-chance email'
+        break
+    }
+
+    return {
+      customerId: s.customerId,
+      customerName: s.customerName,
+      phone: s.phone,
+      recencyDays,
+      frequency: s.frequency,
+      monetary: Math.round(s.monetary * 100) / 100,
+      rScore,
+      fScore,
+      mScore,
+      rfmScore,
+      segment,
+      churnProbability: Math.round(churnProb * 100) / 100,
+      expectedLTV,
+      recommendedAction: action,
+    }
+  })
+
+  // Sort by RFM score descending
+  segments.sort((a, b) => b.rfmScore - a.rfmScore)
+  return segments
+}
+
+// ============================================================================
+// Cohort Analysis — group customers by month of first purchase
+// ============================================================================
+
+export interface CohortRow {
+  cohortMonth: string // YYYY-MM (first purchase month)
+  cohortSize: number
+  retentionByMonth: { monthOffset: number; activeCustomers: number; retentionRate: number }[]
+  avgRevenuePerCustomer: number
+  totalRevenue: number
+}
+
+export function analyzeCohorts(customers: Customer[], invoices: Invoice[]): CohortRow[] {
+  // Map: customerId -> first purchase month
+  const firstPurchaseByCustomer = new Map<string, string>()
+  for (const inv of invoices) {
+    const cid = String(inv?.customerId || '')
+    if (!cid) continue
+    const date = new Date(inv?.date || inv?.createdAt || 0)
+    if (isNaN(date.getTime())) continue
+    const ym = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`
+    const existing = firstPurchaseByCustomer.get(cid)
+    if (!existing || ym < existing) {
+      firstPurchaseByCustomer.set(cid, ym)
+    }
+  }
+
+  // Group customers by cohort month
+  const cohorts = new Map<string, Set<string>>()
+  for (const [cid, ym] of firstPurchaseByCustomer.entries()) {
+    if (!cohorts.has(ym)) cohorts.set(ym, new Set())
+    cohorts.get(ym)!.add(cid)
+  }
+
+  // Build cohort-by-cohort retention
+  const cohortRows: CohortRow[] = []
+  const now = new Date()
+
+  for (const [cohortMonth, customerSet] of cohorts.entries()) {
+    const cohortSize = customerSet.size
+
+    // Find active customers in each subsequent month
+    const retentionByMonth: { monthOffset: number; activeCustomers: number; retentionRate: number }[] = []
+
+    // Parse cohort start
+    const [cy, cm] = cohortMonth.split('-').map(Number)
+    let cohortDate = new Date(cy, cm - 1, 1)
+
+    let offset = 0
+    while (cohortDate <= now) {
+      const offsetDate = new Date(cy, cm - 1 + offset, 1)
+      const offsetEnd = new Date(cy, cm + offset, 0, 23, 59, 59)
+
+      // Count cohort members active in this month — each customer counted
+      // once even if multiple invoices in the month.
+      const activeCustomers = new Set<string>()
+      for (const inv of invoices) {
+        const cid = String(inv?.customerId || '')
+        if (!customerSet.has(cid)) continue
+        const invDate = new Date(inv?.date || inv?.createdAt || 0)
+        if (invDate >= offsetDate && invDate <= offsetEnd) activeCustomers.add(cid)
+      }
+
+      retentionByMonth.push({
+        monthOffset: offset,
+        activeCustomers: activeCustomers.size,
+        retentionRate: cohortSize > 0 ? Math.round((activeCustomers.size / cohortSize) * 100) / 100 : 0,
+      })
+
+      offset++
+      if (offset > 24) break // limit to 24 months
+      cohortDate = new Date(cy, cm - 1 + offset, 1)
+    }
+
+    // Total revenue from this cohort
+    let totalRevenue = 0
+    for (const inv of invoices) {
+      const cid = String(inv?.customerId || '')
+      if (!customerSet.has(cid)) continue
+      totalRevenue += Number(inv?.grandTotal || 0)
+    }
+
+    cohortRows.push({
+      cohortMonth,
+      cohortSize,
+      retentionByMonth,
+      avgRevenuePerCustomer: cohortSize > 0 ? Math.round((totalRevenue / cohortSize) * 100) / 100 : 0,
+      totalRevenue: Math.round(totalRevenue * 100) / 100,
+    })
+  }
+
+  // Sort by cohort month descending
+  cohortRows.sort((a, b) => b.cohortMonth.localeCompare(a.cohortMonth))
+  return cohortRows.slice(0, 12) // last 12 cohorts
+}
+
+export interface AdvancedAnalytics {
+  rfm: RFMSegment[]
+  cohorts: CohortRow[]
+  churnRate: number
+  avgCustomerLTV: number
+  repeatPurchaseRate: number
+  highRiskCustomers: { customerId: string; name: string; phone: string; churnProbability: number; lastPurchase: string }[]
+}
+
+/**
+ * Combined advanced analytics endpoint.
+ */
+export function generateAdvancedAnalytics(customers: Customer[], invoices: Invoice[]): AdvancedAnalytics {
+  const rfm = analyzeRFM(customers, invoices)
+  const cohorts = analyzeCohorts(customers, invoices)
+
+  // Churn rate = % of customers with recencyDays > 60
+  const churnedCount = rfm.filter((r) => r.recencyDays > 60).length
+  const churnRate = rfm.length > 0 ? churnedCount / rfm.length : 0
+
+  // Avg LTV
+  const avgCustomerLTV = rfm.length > 0
+    ? rfm.reduce((s, r) => s + r.expectedLTV, 0) / rfm.length
+    : 0
+
+  // Repeat purchase rate = % with frequency >= 2
+  const repeatCount = rfm.filter((r) => r.frequency >= 2).length
+  const repeatPurchaseRate = rfm.length > 0 ? repeatCount / rfm.length : 0
+
+  // High-risk customers (churn probability > 0.5 AND have made at least 1 purchase)
+  const highRiskCustomers = rfm
+    .filter((r) => r.churnProbability > 0.5 && r.frequency >= 1)
+    .sort((a, b) => b.churnProbability - a.churnProbability)
+    .slice(0, 20)
+    .map((r) => ({
+      customerId: r.customerId,
+      name: r.customerName,
+      phone: r.phone,
+      churnProbability: r.churnProbability,
+      lastPurchase: r.recencyDays === 999 ? 'never' : `${r.recencyDays} days ago`,
+    }))
+
+  return {
+    rfm,
+    cohorts,
+    churnRate: Math.round(churnRate * 100) / 100,
+    avgCustomerLTV: Math.round(avgCustomerLTV),
+    repeatPurchaseRate: Math.round(repeatPurchaseRate * 100) / 100,
+    highRiskCustomers,
+  }
+}

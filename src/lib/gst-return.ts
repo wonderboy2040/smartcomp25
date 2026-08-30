@@ -412,3 +412,270 @@ export function gstr1ToCsv(r: Gstr1Result): string {
 
   return rows.join('\n')
 }
+
+// ============================================================================
+// v13 NEW: GSTR-3B Summary + GSTR-2B Reconciliation
+// ============================================================================
+
+export interface Gstr3BResult {
+  month: string
+  outwardSupplies: {
+    taxableValue: number
+    centralTax: number
+    stateTax: number
+    integratedTax: number
+    cess: number
+  }
+  inwardSupplies: {
+    taxableValue: number
+    centralTax: number
+    stateTax: number
+    integratedTax: number
+  }
+  inputTaxCredit: {
+    centralTax: number
+    stateTax: number
+    integratedTax: number
+    cess: number
+  }
+  taxPayable: number
+  taxPaid: number
+  netTaxPayable: number
+  itcCarriedForward: number
+  warnings: string[]
+}
+
+/**
+ * Build GSTR-3B summary for a given month.
+ *
+ * GSTR-3B is a monthly summary return — combines:
+ *   - All outward supplies (sales) → output tax
+ *   - All inward supplies (purchases) → input tax credit (ITC)
+ *   - Net tax payable = output tax − ITC available
+ *
+ * The function uses the existing buildGstr1 logic for outward and pairs it
+ * with PurchaseOrders for inward. Bank charges/transport (non-GST) are
+ * excluded.
+ */
+export function buildGstr3B(
+  invoices: any[],
+  purchaseOrders: any[],
+  month: string, // YYYY-MM
+): Gstr3BResult {
+  const warnings: string[] = []
+
+  // Filter invoices for the month
+  const monthInvoices = invoices.filter((inv) => {
+    const d = new Date(inv?.date || inv?.createdAt || 0)
+    if (isNaN(d.getTime())) return false
+    const ym = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
+    return ym === month
+  })
+
+  // Aggregate outward supplies
+  let outTaxable = 0
+  let outCgst = 0
+  let outSgst = 0
+  let outIgst = 0
+  let outCess = 0
+
+  for (const inv of monthInvoices) {
+    const subtotal = Number(inv?.subtotal) || 0
+    const gst = Number(inv?.gstAmount) || 0
+    outTaxable += subtotal
+    // v13 fix: previously `Number(inv?.cgstAmount) || gst / 2` would fall
+    // through on 0 values — double-counting tax for inter-state invoices
+    // stored with cgstAmount=0, sgstAmount=0, igstAmount=gstAmount. Now we
+    // explicitly check which split is stored and only fall back to the
+    // 50/50 intra-state split when NO tax-breakdown field is set.
+    const cgst = Number(inv?.cgstAmount) || 0
+    const sgst = Number(inv?.sgstAmount) || 0
+    const igst = Number(inv?.igstAmount) || 0
+    if (cgst > 0 || sgst > 0) {
+      outCgst += cgst
+      outSgst += sgst
+    } else if (igst > 0) {
+      outIgst += igst
+    } else if (gst > 0) {
+      // Legacy invoice without tax-split fields — assume intra-state (the
+      // shop's local default; most small retail is intra-state).
+      outCgst += gst / 2
+      outSgst += gst / 2
+    }
+    outCess += Number(inv?.cessAmount) || 0
+  }
+
+  // Aggregate inward supplies (ITC from purchases)
+  const monthPurchases = purchaseOrders.filter((po) => {
+    const d = new Date(po?.date || po?.createdAt || po?.receivedDate || 0)
+    if (isNaN(d.getTime())) return false
+    const ym = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
+    return ym === month && po?.status === 'received'
+  })
+
+  let inTaxable = 0
+  let inCgst = 0
+  let inSgst = 0
+  let inIgst = 0
+
+  for (const po of monthPurchases) {
+    let poTaxable = 0
+    let poGst = 0
+    try {
+      const items = JSON.parse(po?.itemsJson || '[]')
+      for (const item of items) {
+        poTaxable += Number(item?.amount || (Number(item?.qty || 0) * Number(item?.cost || 0)))
+        poGst += Number(item?.gstAmount || (Number(item?.amount || 0) * Number(item?.gstRate || 0) / 100))
+      }
+    } catch {}
+    inTaxable += poTaxable
+    inCgst += poGst / 2
+    inSgst += poGst / 2
+  }
+
+  // Tax payable calculations
+  const outputTax = outCgst + outSgst + outIgst + outCess
+  const itcAvailable = inCgst + inSgst + inIgst
+  const taxPayable = Math.max(0, outputTax - itcAvailable)
+  const netTaxPayable = outputTax - itcAvailable
+  const itcCarriedForward = Math.max(0, -netTaxPayable)
+
+  if (outputTax === 0) {
+    warnings.push('No outward supplies in this month — check if invoices are dated correctly')
+  }
+  if (itcAvailable === 0 && monthPurchases.length > 0) {
+    warnings.push('Purchases found but no ITC computed — verify gstRate on purchase line items')
+  }
+  if (taxPayable > 0 && itcCarriedForward === 0) {
+    warnings.push(`Net tax payable: Rs. ${taxPayable.toFixed(2)} — file before 20th of next month`)
+  }
+
+  return {
+    month,
+    outwardSupplies: {
+      taxableValue: round2(outTaxable),
+      centralTax: round2(outCgst),
+      stateTax: round2(outSgst),
+      integratedTax: round2(outIgst),
+      cess: round2(outCess),
+    },
+    inwardSupplies: {
+      taxableValue: round2(inTaxable),
+      centralTax: round2(inCgst),
+      stateTax: round2(inSgst),
+      integratedTax: round2(inIgst),
+    },
+    inputTaxCredit: {
+      centralTax: round2(inCgst),
+      stateTax: round2(inSgst),
+      integratedTax: round2(inIgst),
+      cess: 0,
+    },
+    taxPayable: round2(taxPayable),
+    taxPaid: 0,
+    netTaxPayable: round2(netTaxPayable),
+    itcCarriedForward: round2(itcCarriedForward),
+    warnings,
+  }
+}
+
+// ============================================================================
+// GSTR-2B Reconciliation Helper
+// ============================================================================
+
+export interface Gst2BReconResult {
+  month: string
+  matched: { count: number; totalTax: number }
+  inBooksNotIn2B: { count: number; totalTax: number; items: { supplierName: string; invoiceNumber: string; taxAmount: number }[] }
+  in2BNotInBooks: { count: number; totalTax: number; items: { supplierGstin: string; invoiceNumber: string; taxAmount: number }[] }
+  itcAvailable: number
+  itcAtRisk: number
+  matchRate: number
+}
+
+/**
+ * Reconcile purchase bills in books against GSTR-2B data.
+ *
+ * @param booksPurchases — PurchaseOrders (filtered to month)
+ * @param gstr2b — array of { supplierGstin, invoiceNumber, taxableValue, taxAmount }
+ */
+export function reconcileGstr2B(
+  booksPurchases: any[],
+  gstr2b: { supplierGstin: string; invoiceNumber: string; taxableValue: number; taxAmount: number }[],
+  month: string,
+): Gst2BReconResult {
+  const booksByInv = new Map<string, { supplierName: string; taxAmount: number; po: any }>()
+  for (const po of booksPurchases) {
+    const invNum = String(po?.invoiceNumber || po?.poNumber || po?.id || '')
+    if (!invNum) continue
+    let tax = 0
+    try {
+      const items = JSON.parse(po?.itemsJson || '[]')
+      for (const item of items) {
+        tax += Number(item?.gstAmount || (Number(item?.amount || 0) * Number(item?.gstRate || 0) / 100))
+      }
+    } catch {}
+    booksByInv.set(invNum, { supplierName: String(po?.supplierName || ''), taxAmount: tax, po })
+  }
+
+  const gstr2bByInv = new Map<string, { supplierGstin: string; taxAmount: number }>()
+  for (const g of gstr2b) {
+    gstr2bByInv.set(String(g.invoiceNumber || ''), { supplierGstin: String(g.supplierGstin || ''), taxAmount: Number(g.taxAmount || 0) })
+  }
+
+  const matchedItems: { count: number; totalTax: number } = { count: 0, totalTax: 0 }
+  const inBooksNotIn2BItems: { supplierName: string; invoiceNumber: string; taxAmount: number }[] = []
+  const in2BNotInBooksItems: { supplierGstin: string; invoiceNumber: string; taxAmount: number }[] = []
+
+  // Match books → 2B
+  let booksTaxNotMatched = 0
+  for (const [invNum, book] of booksByInv.entries()) {
+    const g = gstr2bByInv.get(invNum)
+    if (g && Math.abs(g.taxAmount - book.taxAmount) < 1) {
+      matchedItems.count++
+      matchedItems.totalTax += g.taxAmount
+    } else {
+      inBooksNotIn2BItems.push({
+        supplierName: book.supplierName,
+        invoiceNumber: invNum,
+        taxAmount: book.taxAmount,
+      })
+      booksTaxNotMatched += book.taxAmount
+    }
+  }
+
+  // 2B entries not in books
+  let unbookedTax = 0
+  for (const [invNum, g] of gstr2bByInv.entries()) {
+    if (!booksByInv.has(invNum)) {
+      in2BNotInBooksItems.push({
+        supplierGstin: g.supplierGstin,
+        invoiceNumber: invNum,
+        taxAmount: g.taxAmount,
+      })
+      unbookedTax += g.taxAmount
+    }
+  }
+
+  const totalBooksTax = Array.from(booksByInv.values()).reduce((s, b) => s + b.taxAmount, 0)
+  const total2BTax = Array.from(gstr2bByInv.values()).reduce((s, g) => s + g.taxAmount, 0)
+  const matchRate = totalBooksTax > 0 ? matchedItems.totalTax / totalBooksTax : 0
+
+  return {
+    month,
+    matched: matchedItems,
+    inBooksNotIn2B: {
+      count: inBooksNotIn2BItems.length,
+      totalTax: Math.round(booksTaxNotMatched * 100) / 100,
+      items: inBooksNotIn2BItems.slice(0, 50),
+    },
+    in2BNotInBooks: {
+      count: in2BNotInBooksItems.length,
+      totalTax: Math.round(unbookedTax * 100) / 100,
+      items: in2BNotInBooksItems.slice(0, 50),
+    },
+    itcAvailable: Math.round(matchedItems.totalTax * 100) / 100,
+    itcAtRisk: Math.round(booksTaxNotMatched * 100) / 100,
+    matchRate: Math.round(matchRate * 100) / 100,
+  }
+}

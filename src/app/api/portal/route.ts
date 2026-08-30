@@ -2,17 +2,21 @@ import { NextRequest, NextResponse } from 'next/server'
 import { listRows } from '@/lib/sheets-client'
 import { safeJsonParse } from '@/lib/utils'
 import { apiLimiter, getClientIp } from '@/lib/rate-limit'
+import { getSessionPhone } from '@/lib/otp-store'
 
 /**
- * GET /api/portal?phone=9876543210 — Customer Self-Service portal data
+ * GET /api/portal?phone=9876543210 OR Authorization: Bearer <token>
  *
- * Public endpoint (no PIN). Returns everything a customer needs to see:
- *   - their invoices (number, date, total, paid, due)
- *   - warranty status of items sold to them (from ItemSerials)
- *   - their AMC contracts + expiry
- *   - shop contact info
+ * v13 UPGRADE: Customer Self-Service portal now supports OTP-based auth.
  *
- * Lookup is by registered phone number (10-digit India mobile).
+ * Two ways to identify the customer:
+ *   1. Legacy: ?phone=9876543210 — works but vulnerable to phone enumeration
+ *   2. v13: Authorization: Bearer <token> — verified via OTP first
+ *
+ * The v13 flow is recommended for new portal UIs. If a token is provided,
+ * the phone is pulled from the session store and overrides the query param.
+ *
+ * Returns: customer invoices, warranty status, AMC contracts, shop contact.
  */
 
 function normalizePhone(raw: unknown): string {
@@ -28,8 +32,23 @@ export async function GET(req: NextRequest) {
     const check = apiLimiter(ip)
     if (!check.allowed) return NextResponse.json({ error: 'Rate limited — try again in a moment' }, { status: 429 })
 
-    const url = new URL(req.url)
-    const phone = normalizePhone(url.searchParams.get('phone'))
+    // v13: prefer token-based auth if Authorization header present
+    let phone = ''
+    const authHeader = req.headers.get('authorization') || ''
+    if (authHeader.startsWith('Bearer ')) {
+      const token = authHeader.slice(7)
+      const sessionPhone = getSessionPhone(token)
+      if (sessionPhone) {
+        phone = normalizePhone(sessionPhone)
+      }
+    }
+
+    // Fallback to query param (legacy)
+    if (!phone) {
+      const url = new URL(req.url)
+      phone = normalizePhone(url.searchParams.get('phone'))
+    }
+
     if (phone.length !== 10) {
       return NextResponse.json({ error: 'Enter a valid 10-digit mobile number' }, { status: 400 })
     }
@@ -49,8 +68,6 @@ export async function GET(req: NextRequest) {
       .filter((inv) => strip(inv.customerPhone) === phone)
       .sort((a, b) => new Date(b.date || b.createdAt || 0).getTime() - new Date(a.date || a.createdAt || 0).getTime())
 
-    // ItemSerials sold rows are keyed by invoiceNumber (no stored phone),
-    // so warranty is joined through the customer's invoices.
     const invoiceNumbers = new Set(invoices.map((inv) => String(inv.number || '')))
     const serials = allSerials.filter(
       (s) => String(s.status) === 'sold' && invoiceNumbers.has(String(s.invoiceNumber || '')),

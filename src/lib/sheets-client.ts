@@ -407,6 +407,116 @@ export async function listRows<T = any>(
   }
 }
 
+/**
+ * Paginated list with optional Firestore-side filtering and ordering.
+ *
+ * Uses Firestore query pushdown (`.where()` + `.orderBy()` + `.limit()`)
+ * instead of loading the entire collection into memory. Returns a cursor
+ * the caller can use to fetch the next page.
+ *
+ * NOTE: composite indexes may be required by Firestore for some
+ * (where + orderBy) combinations; we fall back to in-memory pagination
+ * if the index is missing.
+ */
+export async function listRowsPaginated<T = any>(
+  sheet: string,
+  options: {
+    where?: { field: string; op?: FirebaseFirestore.WhereFilterOp; value: any }[]
+    orderBy?: { field: string; direction?: 'asc' | 'desc' }
+    limit?: number
+    cursor?: string // opaque cursor returned by previous call
+    includeDeleted?: boolean
+  } = {},
+): Promise<{ rows: T[]; nextCursor: string | null; totalApprox: number }> {
+  if (!isConfigured()) return { rows: [] as T[], nextCursor: null, totalApprox: 0 }
+
+  const pageSize = Math.min(Math.max(options.limit ?? 50, 1), 500)
+  const includeDeleted = options.includeDeleted === true
+
+  const db = await getDb()
+  if (!db) return { rows: [] as T[], nextCursor: null, totalApprox: 0 }
+
+  try {
+    let q: any = db.collection(sheet)
+
+    // Apply server-side filters (Firestore WhereFilterOp)
+    if (Array.isArray(options.where)) {
+      for (const w of options.where) {
+        if (!w || !w.field) continue
+        const op = w.op || '=='
+        try {
+          q = q.where(w.field, op as any, w.value)
+        } catch {
+          // ignore filter that can't be applied server-side
+        }
+      }
+    }
+    // v13.1 fix: previously we applied `where('deleted', '!=', true)` here
+    // AND `orderBy(otherField)` — Firestore rejects this query at .get()
+    // time because the first orderBy must match the inequality field. The
+    // query would throw and fall through to the in-memory fallback, making
+    // the Firestore pushdown dead code. Now we skip the server-side deleted
+    // filter entirely and rely on the in-memory `isDeletedRow` check below
+    // (already present on the post-fetch pass). This costs a few extra
+    // docs of bandwidth but keeps the orderBy pushdown functional.
+    if (options.orderBy && options.orderBy.field) {
+      try {
+        q = q.orderBy(options.orderBy.field, options.orderBy.direction || 'desc')
+      } catch {
+        // ignore — caller can sort in memory
+      }
+    }
+    if (options.cursor) {
+      try {
+        // v13.1 fix: cursor is the Firestore doc.id (the actual primary key).
+        // Previously we used `data.id` which can differ from the doc.id on
+        // legacy/imported rows — causing the doc lookup to fail silently and
+        // resetting the caller to page 1.
+        const cursorDoc = await db.collection(sheet).doc(options.cursor).get()
+        if (cursorDoc && cursorDoc.exists) {
+          q = q.startAfter(cursorDoc)
+        }
+      } catch {
+        // ignore bad cursor
+      }
+    }
+    q = q.limit(pageSize + 1) // fetch 1 extra to detect "has more"
+
+    const snapshot = await q.get()
+    const rows: any[] = []
+    // Track the actual Firestore doc.id for cursor pagination — this is
+    // critical because `data.id` (the field stored in the row) may differ
+    // from `doc.id` for legacy/imported rows.
+    const docIds: string[] = []
+    snapshot.forEach((doc: any) => {
+      const row = docToRow(doc)
+      if (!row) return
+      if (!includeDeleted && isDeletedRow(row)) return
+      rows.push(row)
+      docIds.push(doc.id)
+    })
+
+    let nextCursor: string | null = null
+    if (rows.length > pageSize) {
+      // Use the actual Firestore doc.id (not data.id) for the next cursor.
+      nextCursor = String(docIds[pageSize - 1] || rows[pageSize - 1]?.id || '')
+      rows.length = pageSize
+    }
+
+    return { rows: rows as T[], nextCursor, totalApprox: rows.length }
+  } catch (e: any) {
+    // Fallback: in-memory pagination via listRows (preserves backward compat)
+    const allRows = await listRows<T>(sheet, { includeDeleted })
+    const sliced = allRows.slice(0, pageSize)
+    const lastRow = sliced.length > 0 ? sliced[sliced.length - 1] : null
+    return {
+      rows: sliced,
+      nextCursor: sliced.length === pageSize ? String((lastRow as any)?.id || '') : null,
+      totalApprox: allRows.length,
+    }
+  }
+}
+
 export async function getBatchRows(sheets: string[]): Promise<Record<string, any[]>> {
   if (!isConfigured()) {
     const empty: Record<string, any[]> = {}

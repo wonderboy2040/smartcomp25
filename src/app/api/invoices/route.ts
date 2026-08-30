@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { listRows, createInvoiceUltra, getRow } from '@/lib/sheets-client'
+import { listRows, listRowsPaginated, createInvoiceUltra, getRow } from '@/lib/sheets-client'
 import { computeInvoice, type LineItem } from '@/lib/calc'
 import { apiLimiter, writeLimiter, getClientIp } from '@/lib/rate-limit'
 import { markUnitsSold, parseUnitList } from '@/lib/item-units'
@@ -29,6 +29,42 @@ export async function GET(req: NextRequest) {
     const customerId = url.searchParams.get('customerId')
     const limit = parseInt(url.searchParams.get('limit') || '200')
     const search = url.searchParams.get('search')
+    const cursor = url.searchParams.get('cursor')
+    const usePagination = url.searchParams.get('paginated') === '1'
+
+    // v13: server-side cursor pagination when `paginated=1` is set
+    if (usePagination && !search && !status && !paymentType && !customerId) {
+      const result = await listRowsPaginated<any>('Invoices', {
+        orderBy: { field: 'createdAt', direction: 'desc' },
+        limit,
+        cursor: cursor || undefined,
+      })
+      const rows = result.rows.map((inv) => ({
+        ...inv,
+        customer: {
+          id: inv.customerId,
+          name: inv.customerName,
+          phone: inv.customerPhone,
+          gstNumber: inv.customerGstin,
+        },
+        subtotal: Number(inv.subtotal) || 0,
+        gstAmount: Number(inv.gstAmount) || 0,
+        courierCharges: Number(inv.courierCharges) || 0,
+        otherCharges: Number(inv.otherCharges) || 0,
+        discount: Number(inv.discount) || 0,
+        grandTotal: Number(inv.grandTotal) || 0,
+        totalCost: Number(inv.totalCost) || 0,
+        profit: Number(inv.profit) || 0,
+        amountPaid: Number(inv.amountPaid) || 0,
+        amountDue: Number(inv.amountDue) || 0,
+      }))
+      return NextResponse.json({ rows, nextCursor: result.nextCursor }, {
+        headers: {
+          'X-Paginated': 'true',
+          'X-RateLimit-Remaining': check.remaining.toString(),
+        },
+      })
+    }
 
     let invoices = await listRows<any>('Invoices')
 

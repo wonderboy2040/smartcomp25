@@ -47,6 +47,9 @@ export async function GET(req: NextRequest) {
         status: c?.status || dynamicStatus,
         dynamicStatus,
         notes: String(c?.notes || ''),
+        autoInvoice: c?.autoInvoice === true || c?.autoInvoice === 'true',
+        nextInvoiceDate: c?.nextInvoiceDate || '',
+        lastInvoiceDate: c?.lastInvoiceDate || '',
       }
     })
 
@@ -99,6 +102,20 @@ export async function POST(req: NextRequest) {
     else if (frequency === 'half-yearly') nextVisit.setMonth(nextVisit.getMonth() + 6)
     else if (frequency === 'yearly') nextVisit.setFullYear(nextVisit.getFullYear() + 1)
 
+    // v13: auto-invoice support — when enabled, daily cron generates an invoice
+    // for the AMC fee at each frequency interval. nextInvoiceDate starts at the
+    // first frequency boundary (so the first invoice generates after 1 period).
+    const autoInvoice = body.autoInvoice === true
+    let nextInvoiceDate = ''
+    if (autoInvoice) {
+      const nextInv = new Date(start)
+      if (frequency === 'monthly') nextInv.setMonth(nextInv.getMonth() + 1)
+      else if (frequency === 'quarterly') nextInv.setMonth(nextInv.getMonth() + 3)
+      else if (frequency === 'half-yearly') nextInv.setMonth(nextInv.getMonth() + 6)
+      else if (frequency === 'yearly') nextInv.setFullYear(nextInv.getFullYear() + 1)
+      nextInvoiceDate = nextInv.toISOString()
+    }
+
     const contract = await createRow('AMCContracts', {
       contractNumber,
       customerId: String(body.customerId || ''),
@@ -116,6 +133,9 @@ export async function POST(req: NextRequest) {
       nextVisitDate: nextVisit.toISOString(),
       status: 'active',
       notes: String(body.notes || ''),
+      autoInvoice,
+      nextInvoiceDate,
+      lastInvoiceDate: '',
     })
 
     return NextResponse.json(contract)

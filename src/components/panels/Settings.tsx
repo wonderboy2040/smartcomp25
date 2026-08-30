@@ -14,8 +14,9 @@ import { Textarea } from '@/components/ui/textarea'
 import { Badge } from '@/components/ui/badge'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { useToast } from '@/hooks/use-toast'
-import { Store, Settings as SettingsIcon, RefreshCw, CheckCircle2, AlertCircle, Database, Sparkles, Copy, ExternalLink, Loader2, ShieldCheck, Zap, Cloud, Send, X, Download, HardDrive, Activity, Cpu, BarChart3, FileJson, FileText, Star, Megaphone, Flame } from 'lucide-react'
+import { Store, Settings as SettingsIcon, RefreshCw, CheckCircle2, AlertCircle, Database, Sparkles, Copy, ExternalLink, Loader2, ShieldCheck, Zap, Cloud, Send, X, Download, HardDrive, Activity, Cpu, BarChart3, FileJson, FileText, Star, Megaphone, Flame, Palette, Moon, Sun, FileSpreadsheet, Code } from 'lucide-react'
 import { BUSINESS_GROWTH } from '@/lib/business-growth'
+import { useTheme } from '@/lib/theme-context'
 
 export function SettingsPanel() {
   return (
@@ -34,7 +35,7 @@ export function SettingsPanel() {
       </div>
 
       <Tabs defaultValue="shop">
-        <TabsList className="grid w-full grid-cols-6 h-auto">
+        <TabsList className="grid w-full grid-cols-7 h-auto">
           <TabsTrigger value="shop" className="flex items-center gap-1 py-2 text-[11px] sm:text-xs">
             <Store className="w-3.5 h-3.5 sm:w-4 sm:h-4" /> Shop
           </TabsTrigger>
@@ -50,8 +51,11 @@ export function SettingsPanel() {
           <TabsTrigger value="data" className="flex items-center gap-1 py-2 text-[11px] sm:text-xs">
             <Database className="w-3.5 h-3.5 sm:w-4 sm:h-4" /> Data
           </TabsTrigger>
+          <TabsTrigger value="appearance" className="flex items-center gap-1 py-2 text-[11px] sm:text-xs">
+            <Palette className="w-3.5 h-3.5 sm:w-4 sm:h-4" /> <span className="hidden sm:inline">Theme</span>
+          </TabsTrigger>
           <TabsTrigger value="backup" className="flex items-center gap-1 py-2 text-[11px] sm:text-xs">
-            <Download className="w-3.5 h-3.5 sm:w-4 sm:h-4" /> <span className="hidden sm:inline">Backup v3.0</span><span className="sm:hidden">Backup</span>
+            <Download className="w-3.5 h-3.5 sm:w-4 sm:h-4" /> <span className="hidden sm:inline">Backup</span>
           </TabsTrigger>
         </TabsList>
 
@@ -165,6 +169,9 @@ export function SettingsPanel() {
         </TabsContent>
         <TabsContent value="data" className="mt-4">
           <DataSettings />
+        </TabsContent>
+        <TabsContent value="appearance" className="mt-4">
+          <AppearanceSettings />
         </TabsContent>
         <TabsContent value="backup" className="mt-4 space-y-4">
           <BackupExport />
@@ -367,6 +374,125 @@ function ShopSettings() {
         </Button>
       </CardContent>
     </Card>
+  )
+}
+
+function AppearanceSettings() {
+  const { theme, toggleTheme, setTheme } = useTheme()
+  const { toast } = useToast()
+  const [tallyLoading, setTallyLoading] = useState(false)
+  const [tallyFrom, setTallyFrom] = useState('')
+  const [tallyTo, setTallyTo] = useState('')
+
+  async function handleTallyExport() {
+    try {
+      setTallyLoading(true)
+      const params = new URLSearchParams()
+      if (tallyFrom) params.set('from', tallyFrom)
+      if (tallyTo) params.set('to', tallyTo)
+      // Trigger download via hidden anchor
+      const url = `/api/export/tally-xml?${params.toString()}`
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `tally-${tallyFrom || 'all'}-${tallyTo || 'now'}.xml`
+      document.body.appendChild(a)
+      a.click()
+      document.body.removeChild(a)
+      toast({ title: 'Tally XML export started', description: 'Check downloads folder.' })
+    } catch (e: any) {
+      toast({ title: 'Export failed', description: e?.message || String(e), variant: 'destructive' })
+    } finally {
+      setTallyLoading(false)
+    }
+  }
+
+  return (
+    <div className="space-y-4">
+      <Card className="border-indigo-200 bg-gradient-to-br from-indigo-50 to-white shadow-sm">
+        <CardHeader>
+          <CardTitle className="text-base flex items-center gap-2">
+            <div className="w-8 h-8 bg-indigo-100 rounded-lg flex items-center justify-center flex-shrink-0">
+              <Palette className="w-4 h-4 text-indigo-600" />
+            </div>
+            Theme & Appearance
+          </CardTitle>
+          <CardDescription>
+            Switch between dark and light mode. Your choice is saved to this device and will apply on every visit.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="grid grid-cols-2 gap-3">
+            <button
+              type="button"
+              onClick={() => setTheme('light')}
+              className={`flex flex-col items-center gap-2 p-4 border-2 rounded-lg transition ${
+                theme === 'light' ? 'border-indigo-500 bg-indigo-50' : 'border-slate-200 hover:border-indigo-300'
+              }`}
+            >
+              <Sun className="w-6 h-6 text-amber-500" />
+              <span className="text-sm font-semibold">Light Mode</span>
+              <span className="text-xs text-slate-500">Bright daytime UI</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setTheme('dark')}
+              className={`flex flex-col items-center gap-2 p-4 border-2 rounded-lg transition ${
+                theme === 'dark' ? 'border-indigo-500 bg-indigo-50' : 'border-slate-200 hover:border-indigo-300'
+              }`}
+            >
+              <Moon className="w-6 h-6 text-slate-700" />
+              <span className="text-sm font-semibold">Dark Mode</span>
+              <span className="text-xs text-slate-500">Easy on the eyes</span>
+            </button>
+          </div>
+          <div className="bg-emerald-50 border border-emerald-200 rounded-lg p-3">
+            <p className="text-xs text-emerald-900 font-medium mb-1">Current: <strong>{theme === 'dark' ? 'Dark' : 'Light'}</strong></p>
+            <p className="text-[11px] text-emerald-700">Press the toggle button in the top bar or use the buttons above to switch themes anytime.</p>
+          </div>
+          <div className="flex justify-center">
+            <Button variant="outline" size="sm" onClick={toggleTheme}>
+              {theme === 'dark' ? <Sun className="w-4 h-4 mr-2" /> : <Moon className="w-4 h-4 mr-2" />}
+              Toggle Theme Now
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card className="border-emerald-200 bg-gradient-to-br from-emerald-50 to-white shadow-sm">
+        <CardHeader>
+          <CardTitle className="text-base flex items-center gap-2">
+            <div className="w-8 h-8 bg-emerald-100 rounded-lg flex items-center justify-center flex-shrink-0">
+              <Code className="w-4 h-4 text-emerald-600" />
+            </div>
+            Tally XML Export
+          </CardTitle>
+          <CardDescription>
+            One-click export of invoices + payments + expenses in Tally 9.x / Tally Prime XML format. Import via Tally → Import Data → XML.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <Label className="text-xs text-slate-500 uppercase">From Date (optional)</Label>
+              <Input type="date" value={tallyFrom} onChange={(e) => setTallyFrom(e.target.value)} />
+            </div>
+            <div>
+              <Label className="text-xs text-slate-500 uppercase">To Date (optional)</Label>
+              <Input type="date" value={tallyTo} onChange={(e) => setTallyTo(e.target.value)} />
+            </div>
+          </div>
+          <div className="bg-amber-50 border border-amber-200 rounded-lg p-2">
+            <p className="text-[11px] text-amber-800">
+              <strong>Tip:</strong> Leave blank to export current financial year (Apr 1 — today). XML includes Sales, Receipt, and Payment vouchers with GST split (CGST/SGST or IGST).
+            </p>
+          </div>
+          <Button onClick={handleTallyExport} disabled={tallyLoading} className="w-full">
+            {tallyLoading ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <FileSpreadsheet className="w-4 h-4 mr-2" />}
+            Export Tally XML
+          </Button>
+        </CardContent>
+      </Card>
+    </div>
   )
 }
 
