@@ -15,7 +15,7 @@ import {
 } from '@/components/ui/table'
 import { useToast } from '@/hooks/use-toast'
 import { formatCurrency } from '@/lib/calc'
-import { Plus, Search, Pencil, Trash2, Users, Eye, Share2 } from 'lucide-react'
+import { Plus, Search, Pencil, Trash2, Users, Eye, Share2, Footprints } from 'lucide-react'
 
 export function CustomersPanel() {
   const { toast } = useToast()
@@ -40,6 +40,33 @@ export function CustomersPanel() {
     setEditing(null)
     setDialogOpen(true)
   }, [])
+
+  // v13.5: Walk-in Customer — find-or-create the canonical walk-in ledger
+  // entry (idempotent backend endpoint; double-click safe).
+  const [walkinLoading, setWalkinLoading] = useState(false)
+  const handleAddWalkIn = useCallback(async () => {
+    if (walkinLoading) return
+    setWalkinLoading(true)
+    try {
+      const res = await fetch('/api/customers/walkin', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: '{}',
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data?.error || 'Failed to create walk-in customer')
+      toast({
+        title: 'Walk-in Customer ready ✓',
+        description: 'Use it in the invoice form for quick counter sales.',
+        duration: 3000,
+      })
+      refetch()
+    } catch (e: any) {
+      toast({ title: 'Walk-in customer failed', description: e?.message, variant: 'destructive', duration: 5000 })
+    } finally {
+      setWalkinLoading(false)
+    }
+  }, [walkinLoading, refetch, toast])
 
   const handleEdit = useCallback((c: any) => {
     setEditing(c)
@@ -105,9 +132,14 @@ export function CustomersPanel() {
           <h1 className="text-xl sm:text-2xl font-bold text-slate-900">Customers</h1>
           <p className="text-xs sm:text-sm text-slate-500 mt-0.5">Manage customer database and credit balances</p>
         </div>
-        <Button onClick={handleAdd} className="bg-slate-900 hover:bg-slate-800 h-11">
-          <Plus className="w-4 h-4 mr-1.5" /> <span className="hidden sm:inline">Add Customer</span><span className="sm:hidden">Add</span>
-        </Button>
+        <div className="flex gap-2">
+          <Button onClick={handleAdd} className="bg-slate-900 hover:bg-slate-800 h-11">
+            <Plus className="w-4 h-4 mr-1.5" /> <span className="hidden sm:inline">Add Customer</span><span className="sm:hidden">Add</span>
+          </Button>
+          <Button onClick={handleAddWalkIn} disabled={walkinLoading} variant="outline" className="h-11 border-emerald-200 text-emerald-700 hover:bg-emerald-50 hover:border-emerald-400 font-semibold">
+            <Footprints className="w-4 h-4 mr-1.5" /> <span className="hidden sm:inline">{walkinLoading ? 'Adding...' : 'Walk-in'}</span><span className="sm:hidden">{walkinLoading ? '...' : 'Walk-in'}</span>
+          </Button>
+        </div>
       </div>
 
       <Card className="border-slate-200">
@@ -139,7 +171,10 @@ export function CustomersPanel() {
               <CardContent className="p-3">
                 <div className="flex items-start justify-between gap-2">
                   <div className="min-w-0 flex-1">
-                    <p className="font-medium text-slate-900 text-sm truncate">{c?.name || ""}</p>
+                    <p className="font-medium text-slate-900 text-sm truncate">
+                      {c?.name || ""}
+                      {(c.isWalkIn === true || c.isWalkIn === 'true') && <span className="ml-1.5 text-[9px] px-1.5 py-0.5 bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-full font-bold align-middle">WALK-IN</span>}
+                    </p>
                     {c.address && <p className="text-[10px] text-slate-500 truncate">{c.address}</p>}
                   </div>
                   <div className="flex gap-1 flex-shrink-0">
@@ -208,7 +243,10 @@ export function CustomersPanel() {
                   (customers || []).map((c) => (
                     <TableRow key={c.id} className="hover:bg-slate-50">
                       <TableCell>
-                        <div className="font-medium text-slate-900">{c?.name || ""}</div>
+                        <div className="font-medium text-slate-900">
+                          {c?.name || ""}
+                          {(c.isWalkIn === true || c.isWalkIn === 'true') && <span className="ml-1.5 text-[9px] px-1.5 py-0.5 bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-full font-bold align-middle">WALK-IN</span>}
+                        </div>
                         {c.address && <div className="text-[10px] text-slate-500 truncate max-w-xs">{c.address}</div>}
                       </TableCell>
                       <TableCell className="text-sm">{c.phone || '-'}</TableCell>

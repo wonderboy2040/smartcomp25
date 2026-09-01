@@ -18,7 +18,7 @@ import {
 import { useToast } from '@/hooks/use-toast'
 import { computeInvoice, formatCurrency, calculateProfitMargin, type LineItem } from '@/lib/calc'
 import { Badge } from '@/components/ui/badge'
-import { Plus, Trash2, Search, FileText, AlertTriangle, TrendingUp, Package, IndianRupee, User, CreditCard, UserPlus, KeyRound, Hash, ScanLine } from 'lucide-react'
+import { Plus, Trash2, Search, FileText, AlertTriangle, TrendingUp, Package, IndianRupee, User, CreditCard, UserPlus, KeyRound, Hash, ScanLine, Footprints } from 'lucide-react'
 import { BarcodeScanner } from '@/components/BarcodeScanner'
 
 interface DocFormProps {
@@ -241,6 +241,32 @@ export function DocForm({ open, onOpenChange, docType, editing, onSaved }: DocFo
 
   const [customerId, setCustomerId] = useState('')
   const [localCustomers, setLocalCustomers] = useState<any[]>([])
+  // v13.5: Walk-in quick-select (find-or-create on the backend, idempotent).
+  const [walkinLoading, setWalkinLoading] = useState(false)
+  const handleWalkIn = useCallback(async () => {
+    if (walkinLoading) return
+    setWalkinLoading(true)
+    try {
+      const res = await fetch('/api/customers/walkin', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: '{}',
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data?.error || 'Failed to select walk-in customer')
+      setCustomerId(String(data.id))
+      setLocalCustomers((prev) => (prev.some((c) => c.id === data.id) ? prev : [data, ...prev]))
+      toast({
+        title: 'Walk-in customer selected ✓',
+        description: 'Counter sale — no customer details needed. Change it any time.',
+        duration: 2500,
+      })
+    } catch (e: any) {
+      toast({ title: 'Walk-in customer failed', description: e?.message, variant: 'destructive', duration: 5000 })
+    } finally {
+      setWalkinLoading(false)
+    }
+  }, [walkinLoading, toast])
   const [showNewCustomer, setShowNewCustomer] = useState(false)
   const [items, setItems] = useState<LineItem[]>([])
   const [courierCharges, setCourierCharges] = useState(0)
@@ -260,7 +286,11 @@ export function DocForm({ open, onOpenChange, docType, editing, onSaved }: DocFo
   // { data, pagination } wrapper past that. Unpaginated, a shop with 120
   // customers could only pick from the first 100 — and the wrapper made
   // `fetched.map` throw outright. Ask for the whole list and unwrap defensively.
-  const { data: customersRaw } = useFetch<any>('/api/customers?limit=100000', undefined)
+  // v13.5 PERF: `slim=1` — the picker needs only id/name/phone/gst/credit
+  // fields, NOT the "N invoices" counts. Slim mode skips the Invoices +
+  // Quotations collection pulls on the backend and returns a much smaller
+  // JSON payload — this dialog opens noticeably faster on big shops.
+  const { data: customersRaw } = useFetch<any>('/api/customers?limit=100000&slim=1', undefined)
 
   // Merge fetched customers with any newly created ones
   const allCustomers = useMemo(() => {
@@ -740,7 +770,7 @@ export function DocForm({ open, onOpenChange, docType, editing, onSaved }: DocFo
                     {allCustomers.map((c: any) => (
                       <SelectItem key={c.id} value={c.id} className="py-2.5">
                         <div className="flex flex-col">
-                          <span className="font-semibold text-slate-900">{c.name}</span>
+                          <span className="font-semibold text-slate-900">{c.name}{(c.isWalkIn === true || c.isWalkIn === 'true') && <span className="ml-2 text-[10px] px-1.5 py-0.5 bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-full font-bold">WALK-IN</span>}</span>
                           <span className="text-[11px] text-slate-500">
                             {c.phone || 'No phone'} {c.gstNumber ? `• GST: ${c.gstNumber}` : ''} {c._count ? `• ${c._count.invoices} invoices` : ''}
                           </span>
@@ -760,6 +790,21 @@ export function DocForm({ open, onOpenChange, docType, editing, onSaved }: DocFo
                 >
                   <UserPlus className="w-4 h-4 mr-1" />
                   <span className="hidden sm:inline">New</span>
+                </Button>
+                {/* v13.5: Walk-in quick-select — one tap, counter sale booked
+                    against the canonical walk-in customer. Find-or-create on
+                    the backend, so this is safe to spam. */}
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  disabled={walkinLoading}
+                  className="h-11 px-3 bg-white border-emerald-200 text-emerald-700 hover:bg-emerald-50 hover:border-emerald-400 flex-shrink-0 font-semibold"
+                  onClick={handleWalkIn}
+                  title="Walk-in customer — quick counter sale without customer details"
+                >
+                  <Footprints className="w-4 h-4 mr-1" />
+                  <span className="hidden sm:inline">{walkinLoading ? '...' : 'Walk-in'}</span>
                 </Button>
               </div>
               {selectedCustomer && Number(selectedCustomer.creditBalance) > 0 && (

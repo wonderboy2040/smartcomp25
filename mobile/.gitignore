@@ -1,0 +1,40 @@
+# Dependencies
+node_modules/**/*
+
+# Expo
+.expo/**
+.expo-shared/**
+dist/**
+web-build/**
+
+# Metro
+.metro-health-check*
+
+# TypeScript
+expo-env.d.ts
+*.tsbuildinfo
+
+# macOS
+.DS_Store
+
+# IDE
+.vscode/**
+.idea/**
+
+# Misc
+*.log
+.env
+.env.local
+.env.*.local
+
+# Native
+*.orig.*
+*.jks
+*.p8
+*.p12
+*.key
+*.mobileprovision
+
+# Build outputs
+android/**
+ios/**

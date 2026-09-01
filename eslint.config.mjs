@@ -23,6 +23,7 @@ const eslintConfig = [
       'apps-script/**', // Apps Script is plain JS, not part of TS project
       'electron/**',    // Electron main/preload are plain JS
       'scripts/**',
+      'mobile/**',      // React Native / Expo app — separate project, own tsconfig + eslint
     ],
   },
   {

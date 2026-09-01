@@ -1071,15 +1071,22 @@ export async function createInvoiceFull(data: {
   batch.set(db.collection('Invoices').doc(invoiceId), invoiceRow)
 
   if (Array.isArray(sanitized.stockUpdates)) {
-    for (const su of sanitized.stockUpdates) {
-      if (!su?.id || !su.deductQty) continue
-      const itemRef = db.collection('Items').doc(String(su.id))
-      const itemSnap = await itemRef.get()
-      const itemData = itemSnap.data() as any
-      if (itemData) {
+    // v13.5 PERF: fetch ALL stock items in ONE parallel round instead of a
+    // sequential `await get()` per line item. On a 5-item invoice this cuts
+    // 4 Firestore round-trips (each ~30-80ms on Render) off the critical
+    // save path. The batch write itself is untouched (still atomic).
+    const updates = (sanitized.stockUpdates as any[]).filter((su) => su?.id && su.deductQty)
+    if (updates.length > 0) {
+      const snaps = await Promise.all(
+        updates.map((su) => db.collection('Items').doc(String(su.id)).get())
+      )
+      snaps.forEach((itemSnap, idx) => {
+        const itemData = itemSnap.data() as any
+        if (!itemData) return
+        const su = updates[idx]
         const newQty = Math.max(0, Number(itemData.quantity || 0) - Number(su.deductQty))
-        batch.set(itemRef, { quantity: newQty, updatedAt: new Date().toISOString() }, { merge: true })
-      }
+        batch.set(db.collection('Items').doc(String(su.id)), { quantity: newQty, updatedAt: new Date().toISOString() }, { merge: true })
+      })
     }
   }
 
@@ -1228,15 +1235,20 @@ export async function completeJobFull(data: {
   batch.set(jobRef, jobUpdate, { merge: true })
 
   if (Array.isArray(sanitized.stockUpdates)) {
-    for (const su of sanitized.stockUpdates) {
-      if (!su?.id || !su.deductQty) continue
-      const itemRef = db.collection('Items').doc(String(su.id))
-      const itemSnap = await itemRef.get()
-      const itemData = itemSnap.data() as any
-      if (itemData) {
+    // v13.5 PERF: same parallel-read fix as createInvoiceFull — one round
+    // trip for ALL parts instead of sequential per-part awaits.
+    const updates = (sanitized.stockUpdates as any[]).filter((su) => su?.id && su.deductQty)
+    if (updates.length > 0) {
+      const snaps = await Promise.all(
+        updates.map((su) => db.collection('Items').doc(String(su.id)).get())
+      )
+      snaps.forEach((itemSnap, idx) => {
+        const itemData = itemSnap.data() as any
+        if (!itemData) return
+        const su = updates[idx]
         const newQty = Math.max(0, Number(itemData.quantity || 0) - Number(su.deductQty))
-        batch.set(itemRef, { quantity: newQty, updatedAt: new Date().toISOString() }, { merge: true })
-      }
+        batch.set(db.collection('Items').doc(String(su.id)), { quantity: newQty, updatedAt: new Date().toISOString() }, { merge: true })
+      })
     }
   }
 

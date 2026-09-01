@@ -19,6 +19,39 @@ export async function GET(req: NextRequest) {
     const limit = parseInt(url.searchParams.get('limit') || '100')
     const sortBy = url.searchParams.get('sortBy') || 'createdAt'
     const sortOrder = url.searchParams.get('sortOrder') || 'desc'
+    // v13.5 PERF: `slim=1` serves the invoice/quotation customer PICKER —
+    // it needs only id/name/phone/gst/credit fields and does NOT render the
+    // "N invoices" count column. Skipping the Invoices + Quotations pulls
+    // removes 2 of the 3 collection reads on the hottest dialog-open path
+    // (the DocForm fires this on every open). The full mode (Customers panel
+    // table) still computes _count as before.
+    const slim = url.searchParams.get('slim') === '1'
+
+    if (slim) {
+      const customers = await listRows<any>('Customers', { search })
+      const result = customers.map((c) => ({
+        id: String(c.id || ''),
+        name: String(c.name || c.customerName || ''),
+        phone: String(c.phone || c.customerPhone || ''),
+        email: String(c.email || ''),
+        gstNumber: String(c.gstNumber || c.customerGstin || ''),
+        state: String(c.state || ''),
+        address: String(c.address || ''),
+        creditBalance: Number(c.creditBalance) || 0,
+        creditLimit: Number(c.creditLimit) || 0,
+        isWalkIn: c.isWalkIn === true || c.isWalkIn === 'true',
+        createdAt: c.createdAt || '',
+      }))
+      // Newest first — same order the picker showed before.
+      result.sort((a, b) => String(b.createdAt || '').localeCompare(String(a.createdAt || '')))
+      return NextResponse.json(result, {
+        headers: {
+          'X-Slim': 'true',
+          'X-Total-Count': result.length.toString(),
+          'X-RateLimit-Remaining': check.remaining.toString(),
+        }
+      })
+    }
 
     // Parallel fetch for performance
     const [customers, invoices, quotations] = await Promise.all([

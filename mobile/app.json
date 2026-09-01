@@ -1,0 +1,87 @@
+{
+  "expo": {
+    "name": "SmartComp",
+    "slug": "smartcomp",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "scheme": "smartcomp",
+    "userInterfaceStyle": "automatic",
+    "newArchEnabled": true,
+    "splash": {
+      "image": "./assets/splash.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#0f172a"
+    },
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.smartcomp.shop",
+      "infoPlist": {
+        "NSCameraUsageDescription": "SmartComp needs camera access to scan barcodes and QR codes on product packaging and service job labels.",
+        "NSPhotoLibraryUsageDescription": "SmartComp accesses your photo library to attach product images and service job photos.",
+        "NSFaceIDUsageDescription": "Face ID is used to quickly unlock SmartComp without entering your PIN each time."
+      },
+      "associatedDomains": ["applinks:smartcomp.shop", "webcredentials:smartcomp.shop"]
+    },
+    "android": {
+      "package": "com.smartcomp.shop",
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#0f172a"
+      },
+      "permissions": [
+        "android.permission.CAMERA",
+        "android.permission.VIBRATE",
+        "android.permission.POST_NOTIFICATIONS",
+        "android.permission.RECEIVE_BOOT_COMPLETED"
+      ],
+      "intentFilters": [
+        {
+          "action": "VIEW",
+          "autoVerify": true,
+          "data": [
+            { "scheme": "smartcomp" },
+            { "scheme": "https", "host": "smartcomp.shop" }
+          ],
+          "category": ["BROWSABLE", "DEFAULT"]
+        }
+      ]
+    },
+    "web": {
+      "bundler": "metro",
+      "favicon": "./assets/favicon.png"
+    },
+    "plugins": [
+      "expo-router",
+      "expo-secure-store",
+      "expo-barcode-scanner",
+      [
+        "expo-notifications",
+        {
+          "color": "#0f172a",
+          "defaultColor": "#0f172a",
+          "defaultChannel": "smartcomp"
+        }
+      ],
+      [
+        "expo-camera",
+        {
+          "cameraPermissionText": "SmartComp needs camera access to scan barcodes and QR codes."
+        }
+      ]
+    ],
+    "experiments": {
+      "tsdoc": false,
+      "typedRoutes": true,
+      "parallelImport": true
+    },
+    "extra": {
+      "eas": {
+        "projectId": "smartcomp-mobile"
+      },
+      "router": {
+        "origin": false
+      }
+    }
+  }
+}
