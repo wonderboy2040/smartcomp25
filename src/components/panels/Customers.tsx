@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect, useCallback } from 'react'
-import { useFetch, apiPost, apiPut, apiDelete } from '@/lib/api'
+import { useFetch, apiPut, apiDelete, apiPostUltraFast } from '@/lib/api'
 import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -438,7 +438,21 @@ function CustomerDialog({
           duration: 3500,
         })
       } else {
-        await apiPost('/api/customers', form)
+        // v13.6 PERF: instant-close create — dialog shuts in <50ms instead of
+        // blocking on the Firestore round-trip (the "lag" on add customer).
+        // The pending-create guard re-merges the temp row into any refetch,
+        // and a background sync failure is surfaced as a destructive toast.
+        await apiPostUltraFast('/api/customers', form, {
+          instantClose: true,
+          onSyncError: (err) => {
+            toast({
+              title: 'Customer sync failed',
+              description: `${form.name}: ${err.message} — please retry.`,
+              variant: 'destructive',
+              duration: 7000,
+            })
+          },
+        })
         toast({
           title: 'Customer added ✓',
           description: `${form.name} - syncs to cloud`,

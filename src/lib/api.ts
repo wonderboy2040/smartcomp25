@@ -963,7 +963,7 @@ export async function apiPost(url: string, body: ApiBody) {
 // ===== ULTRA-ULTRA FAST v6.0 - INSTANT RETURN + BACKGROUND SYNC =====
 // Returns temp item INSTANTLY (<50ms), syncs to Google Sheets in background
 // If offline, queues to IndexedDB and syncs when online
-export async function apiPostUltraFast(url: string, body: ApiBody, options: { instantClose?: boolean } = {}): Promise<any> {
+export async function apiPostUltraFast(url: string, body: ApiBody, options: { instantClose?: boolean; onSyncError?: (err: Error) => void } = {}): Promise<any> {
   const base = baseUrlOf(url)
   const tempId = 'temp_' + Date.now() + '_' + Math.random().toString(36).slice(2, 8)
   
@@ -1046,8 +1046,12 @@ export async function apiPostUltraFast(url: string, body: ApiBody, options: { in
 
   // If instantClose option, return temp immediately (ultra instant <50ms)
   if (options.instantClose) {
-    // Fire and forget background sync
-    syncPromise.catch(() => {})
+    // v13.6: surface background sync failures to the caller (error toast)
+    // instead of silently swallowing them. The optimistic row stays visible
+    // and is flagged _failed in the list cache so panels can render it.
+    syncPromise.catch((e: any) => {
+      try { options.onSyncError?.(e instanceof Error ? e : new Error(String(e?.message || e))) } catch {}
+    })
     return tempItem
   }
 

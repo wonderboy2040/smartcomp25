@@ -696,22 +696,28 @@ export function DocForm({ open, onOpenChange, docType, editing, onSaved }: DocFo
           duration: 2000,
         })
 
-        // v12.2: instantClose: false — wait for the POST to resolve so the
-        // caller (Invoices/Quotations panel) knows whether the create actually
-        // landed. With instantClose: true, the panel saw the temp item,
-        // called refetch(), and if the POST was failing the temp got wiped
-        // (looked like "auto-delete"). Now we await and surface real errors.
-        const tempResult = await apiPostUltraFast(url, payload, { instantClose: false })
-
-        const elapsed = Date.now() - saveStart
-        // If the create failed, apiPostUltraFast returns a temp with _failed: true
-        // — surface that as an error toast so the user knows.
-        if ((tempResult as any)?._failed) {
-          throw new Error((tempResult as any)?.error || 'Failed to create — please retry')
-        }
+        // v13.6 PERF: instantClose: true — the dialog closes in <50ms instead of
+        // waiting for the full Firestore round-trip (300ms-2s on slow links),
+        // which the shop owner perceived as "site lag" while saving invoices.
+        // Safe now because: (a) the pending-create guard re-merges the temp row
+        // into any refetch that lands mid-POST (the v12.2 auto-delete race is
+        // fixed at the api.ts layer), and (b) a background sync failure is
+        // surfaced via onSyncError as a destructive toast + the row stays in
+        // the list flagged _failed so nothing is silently lost.
+        const tempResult = await apiPostUltraFast(url, payload, {
+          instantClose: true,
+          onSyncError: (err) => {
+            toast({
+              title: `${docType === 'invoice' ? 'Invoice' : 'Quotation'} sync failed`,
+              description: `${err.message} — the row is marked in the list. Please retry.`,
+              variant: 'destructive',
+              duration: 7000,
+            })
+          },
+        })
         toast({
-          title: `${docType === 'invoice' ? 'Invoice' : 'Quotation'} created ✓ ${elapsed}ms`,
-          description: `${tempResult.number} | Profit Rs.${calc.profit.toFixed(2)} | Ultra fast`,
+          title: `${docType === 'invoice' ? 'Invoice' : 'Quotation'} created ✓ ${Date.now() - saveStart}ms`,
+          description: `${tempResult.number} | Profit Rs.${calc.profit.toFixed(2)} | Cloud sync in background`,
           duration: 5000,
         })
 
