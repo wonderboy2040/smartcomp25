@@ -14,6 +14,7 @@ import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from '@/components/ui/table'
 import { useToast } from '@/hooks/use-toast'
+import { useIsDesktop } from '@/hooks/use-media-query'
 import { formatCurrency, sumBy } from '@/lib/calc'
 import { usePdfPreview } from '@/lib/preview-context'
 import { DocForm } from './DocForm'
@@ -23,6 +24,8 @@ import { toCSV, downloadCSV } from '@/lib/utils'
 
 export function InvoicesPanel() {
   const { toast } = useToast()
+  // v13.7 PERF: render only the layout this viewport uses
+  const isDesktop = useIsDesktop()
   const [search, setSearch] = useState('')
   const [statusFilter, setStatusFilter] = useState('all')
   const [typeFilter, setTypeFilter] = useState('all')
@@ -118,6 +121,9 @@ export function InvoicesPanel() {
       docNumber: String(invoice.number || ''),
       customerName: String(invoice.customer?.name || invoice.customerName || 'Customer'),
       customerPhone: String(invoice.customerPhone || invoice.customer?.phone || invoice.phone || invoice.mobile || ''),
+      // v13.7: explicit gender (if the customer record has it) → "Respected
+      // Sir/Madam" in the WhatsApp message; otherwise inferred from the name.
+      customerGender: String(invoice.customer?.gender || invoice.customerGender || '') || undefined,
       grandTotal: Number(invoice.grandTotal) || 0,
       amountDue: Number(invoice.amountDue) || 0,
       notes: invoice.notes,
@@ -321,6 +327,7 @@ export function InvoicesPanel() {
       </Card>
 
       {/* Mobile card layout */}
+      {!isDesktop && (
       <div className="sm:hidden space-y-3">
         {loading ? <Card><CardContent className="text-center py-8 text-slate-600">Loading...</CardContent></Card> : filtered.length === 0 ? <Card><CardContent className="text-center py-8 text-slate-500"><FileText className="w-12 h-12 mx-auto mb-2 text-slate-300" />No invoices</CardContent></Card> : filtered.map((inv) => (
           <Card key={inv.id} className={`border-slate-200 bg-white ${selected.has(inv.id) ? 'ring-2 ring-indigo-300' : ''}`}>
@@ -365,7 +372,9 @@ export function InvoicesPanel() {
         ))}
       </div>
 
+      )}
       {/* Desktop table */}
+      {isDesktop && (
       <Card className="border-slate-200 bg-white hidden sm:block">
         <CardContent className="p-0">
           <div className="overflow-x-auto">
@@ -431,6 +440,7 @@ export function InvoicesPanel() {
         </CardContent>
       </Card>
 
+      )}
       <DocForm key={editing?.id || 'new'} open={dialogOpen} onOpenChange={setDialogOpen} docType="invoice" editing={editing} onSaved={() => { setDialogOpen(false); refetch() }} />
 
       {/* Quick Record Payment dialog */}

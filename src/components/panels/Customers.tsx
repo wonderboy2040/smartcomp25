@@ -8,17 +8,27 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Badge } from '@/components/ui/badge'
 import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
+import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
 } from '@/components/ui/dialog'
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from '@/components/ui/table'
 import { useToast } from '@/hooks/use-toast'
+import { useIsDesktop } from '@/hooks/use-media-query'
 import { formatCurrency } from '@/lib/calc'
 import { Plus, Search, Pencil, Trash2, Users, Eye, Share2, Footprints } from 'lucide-react'
 
 export function CustomersPanel() {
   const { toast } = useToast()
+  // v13.7 PERF: render only the layout this viewport uses
+  const isDesktop = useIsDesktop()
   const [search, setSearch] = useState('')
   const [debouncedSearch, setDebouncedSearch] = useState('')
   const [dialogOpen, setDialogOpen] = useState(false)
@@ -157,6 +167,7 @@ export function CustomersPanel() {
       </Card>
 
       {/* Mobile card layout */}
+      {!isDesktop && (
       <div className="sm:hidden space-y-3">
         {loading ? (
           <Card><CardContent className="text-center py-8 text-slate-500">Loading...</CardContent></Card>
@@ -210,7 +221,9 @@ export function CustomersPanel() {
         )}
       </div>
 
+      )}
       {/* Desktop table */}
+      {isDesktop && (
       <Card className="border-slate-200 hidden sm:block">
         <CardContent className="p-0">
           <div className="overflow-x-auto">
@@ -288,6 +301,7 @@ export function CustomersPanel() {
         </CardContent>
       </Card>
 
+      )}
       <CustomerDialog
         open={dialogOpen}
         onOpenChange={setDialogOpen}
@@ -418,7 +432,7 @@ function CustomerDialog({
       setForm(
         editing
           ? { ...editing }
-          : { name: '', phone: '', email: '', address: '', gstNumber: '', state: '' }
+          : { name: '', phone: '', email: '', address: '', gstNumber: '', state: '', gender: '' }
       )
     }
   }, [open, editing])
@@ -428,10 +442,14 @@ function CustomerDialog({
       toast({ title: 'Name is required', variant: 'destructive', duration: 5000 })
       return
     }
+    // v13.7: strip the empty-string "auto" gender — the zod schema only
+    // accepts 'male' | 'female' | 'other' | undefined.
+    const payload = { ...form }
+    if (!payload.gender) delete payload.gender
     setSaving(true)
     try {
       if (editing) {
-        await apiPut(`/api/customers/${editing.id}`, form)
+        await apiPut(`/api/customers/${editing.id}`, payload)
         toast({
           title: 'Customer updated ✓',
           description: `${form.name} - syncs to cloud`,
@@ -442,7 +460,7 @@ function CustomerDialog({
         // blocking on the Firestore round-trip (the "lag" on add customer).
         // The pending-create guard re-merges the temp row into any refetch,
         // and a background sync failure is surfaced as a destructive toast.
-        await apiPostUltraFast('/api/customers', form, {
+        await apiPostUltraFast('/api/customers', payload, {
           instantClose: true,
           onSyncError: (err) => {
             toast({
@@ -496,6 +514,24 @@ function CustomerDialog({
               placeholder="9876543210"
               className="mt-1"
             />
+          </div>
+          <div>
+            <Label>Gender</Label>
+            <Select
+              value={form.gender || 'none'}
+              onValueChange={(v) => setForm({ ...form, gender: v === 'none' ? '' : v })}
+            >
+              <SelectTrigger className="mt-1 bg-white">
+                <SelectValue placeholder="Auto (detect from name)" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="none">Auto (detect from name)</SelectItem>
+                <SelectItem value="male">Male — greet as Sir</SelectItem>
+                <SelectItem value="female">Female — greet as Madam</SelectItem>
+                <SelectItem value="other">Other</SelectItem>
+              </SelectContent>
+            </Select>
+            <p className="text-[10px] text-slate-500 mt-1">Used for "Respected Sir/Madam" in WhatsApp shares</p>
           </div>
           <div>
             <Label>Email</Label>

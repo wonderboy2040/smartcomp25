@@ -1,205 +1,115 @@
-# WhatsApp Share Implementation - Service Jobs, Invoices & Quotations
+# WhatsApp Share Implementation — v13.7 (Unified Flow)
 
-## ✅ Completed Changes
+## What the user asked (v13.7)
 
-### 1. **Service Invoice GST Removed** ✓
-**File:** `src/app/api/service-pdf/[id]/route.ts`
+1. **Quotation-style share everywhere** — invoices and service jobs must share
+   exactly like quotations: the message text ALWAYS arrives in WhatsApp together
+   with the PDF.
+2. **Respectful greeting** — male customers get *"Respected Sir,"*, female
+   customers get *"Respected Madam,"* in every WhatsApp share (invoices,
+   quotations, service jobs).
 
-- Added `gstMode: 'non-gst'` parameter to service invoice PDF generation
-- Service invoices ab bina GST details ke generate honge
-- No more CGST, SGST, IGST, HSN columns
-- Direct amounts dikhengi - clean aur simple
-- Invoice title "SERVICE BILL" hoga (not "TAX INVOICE")
+## The problem that was fixed
 
-### 2. **WhatsApp Share Invoice Template Added** ✓
-**File:** `src/lib/whatsapp-templates.ts`
+The old mobile path used `navigator.share({ files, text })` (Web Share API).
+WhatsApp on Android **drops the text** when a file comes through the OS share
+sheet — so invoices shared as a PDF attachment with **no message**. Quotations
+happened to feel right because their text was pre-filled via `wa.me`.
 
-- New `'invoice'` template type added to `WhatsAppTemplateType`
-- Complete invoice details ke saath message template:
-  - Job basic details (Job ID, date, device, problem)
-  - Item-wise breakdown with quantities and prices
-  - Service charge
-  - Total, paid amount, balance due
-  - UPI payment details (if balance pending)
+## The v13.7 unified flow (identical on every device, every doc type)
 
-**Template Message Format:**
-```
-*Smart Computers*
+`shareWhatsAppPdf()` in `src/lib/whatsapp.ts` — used by **Invoices**,
+**Quotations**, and **Service Jobs** (Share Invoice template):
 
-📄 SERVICE INVOICE
+1. **Cloud API first (if configured)** — `POST /api/whatsapp/send-pdf`
+   generates the PDF server-side (WeasyPrint, pixel-perfect with the preview)
+   and delivers it to the customer's WhatsApp directly, with the respectful
+   message as the document caption. Nothing manual.
+2. **Fallback (no WA_TOKEN needed)**:
+   - The PDF **auto-downloads** to the device (Downloads folder / recent files).
+   - The customer's WhatsApp chat **opens with the full message pre-filled**
+     (`wa.me/<phone>?text=…`) — the text is also copied to the clipboard.
+   - One tap: attach 📎 → the just-downloaded PDF → send. The pre-filled text
+     becomes the **document caption**, so the customer receives **one message:
+     PDF + text together**.
 
-Dear [Customer Name],
+Deterministic: the text ALWAYS arrives — same behavior on Android, iOS, and
+desktop (WhatsApp Web).
 
-📋 Job Details:
-• Job No: [JOB-ID]
-• Date: [DATE]
-• Device: [DEVICE TYPE - MODEL]
-• Problem: [PROBLEM DESC]
+## Respectful greeting (Sir / Madam)
 
-🧾 INVOICE BREAKDOWN:
+`src/lib/customer-gender.ts`:
 
-*Parts Used:*
-1. [Part Name]
-   Qty: [X] × ₹[PRICE] = ₹[TOTAL]
-2. ...
+| Priority | Source | Example |
+|---|---|---|
+| 1 | Explicit **Gender** field on the customer (new — see below) | `male` → Sir, `female` → Madam |
+| 2 | Name prefix | `Mr./Shri/Mohd.` → Sir, `Mrs./Miss/Smt./Kumari` → Madam |
+| 3 | Business-name detection | `Rahul Traders`, `XYZ Computers` → neutral |
+| 4 | Common Indian first-name dictionary (~350 names) | `Ramesh` → Sir, `Priya` → Madam |
+| 5 | Suffix hints | `Bhaveshbhai` → Sir, `Kinjalben`/`Kaur`/`Devi` → Madam |
+| — | No match | `Dear {FirstName},` (never guesses wrong) |
 
-*Service & Repair Charge:*
-₹[SERVICE CHARGE]
+Greeting line: `Respected Sir,` / `Respected Madam,` / `Dear {Name},` /
+`Dear Customer,` — applied in:
 
-━━━━━━━━━━━━━━
-💰 PAYMENT SUMMARY:
-• Grand Total: ₹[AMOUNT]
-• Paid Amount: -₹[PAID]
-• Balance Due: ₹[BALANCE] or ₹0 (PAID) ✅
+- `buildProfessionalShareMessage` (invoices, quotations, service invoices)
+- All 7 service-job templates in `src/lib/whatsapp-templates.ts`
+  (Device Received, In Progress, Completed, Share Invoice, Payment Reminder,
+  Delivered, Not Repaired)
+- `buildInvoiceShareMessage` + `buildPaymentReminderMessage`
 
-📲 Pay Online:
-UPI ID: [UPI-ID]
+## Customer Gender field (new, optional)
 
-📞 Contact: [PHONE]
-📍 [ADDRESS]
+- **Customer dialog** (Customers panel): Gender dropdown —
+  *Auto (detect from name)* / *Male — greet as Sir* / *Female — greet as Madam* /
+  *Other*. Default "Auto" keeps name inference.
+- **API**: `POST/PUT /api/customers` accept `gender` (`male|female|other`),
+  stored on the Customers sheet (Firestore — schemaless, no migration).
+- **Invoice/Quotation lists**: `/api/invoices` and `/api/quotations` embed
+  `customer.gender` (parallel **cached** Customers read — no extra latency
+  after the first hit) so the share button has gender available instantly.
+- **Jobs**: store `customerGender` when provided at creation; otherwise
+  infer from the name.
 
-Thank you for your business! 🙏
-```
+## Files changed (v13.7)
 
-### 3. **Service WhatsApp Modal Updated** ✓
-**File:** `src/components/ServiceWhatsAppModal.tsx`
+| File | Change |
+|---|---|
+| `src/lib/customer-gender.ts` | NEW — gender inference + respectful greeting |
+| `src/lib/whatsapp.ts` | Unified share flow (removed native-share text-drop path), `customerGender` param, respectful greetings |
+| `src/lib/whatsapp-templates.ts` | Sir/Madam greeting in all 7 service templates |
+| `src/components/ServiceWhatsAppModal.tsx` | Share Invoice now uses the same unified `shareWhatsAppPdf` flow |
+| `src/components/panels/Invoices.tsx` / `Quotations.tsx` | Pass `customerGender` to the share |
+| `src/components/panels/Customers.tsx` | Gender dropdown in the customer dialog |
+| `src/lib/validators.ts` | `gender` in customer schema |
+| `src/app/api/customers/route.ts` + `[id]/route.ts` | Accept/persist `gender` |
+| `src/app/api/invoices/route.ts` / `quotations/route.ts` | Embed `customer.gender` (parallel cached read) |
+| `src/app/api/jobs/route.ts` | Accept `customerGender` passthrough |
 
-**Added Features:**
-- New `FileText` icon for invoice template
-- Special handling for `'invoice'` template type
-- When user clicks "Share Invoice":
-  1. PDF automatically downloads
-  2. WhatsApp opens with message after 1 second delay
-  3. Toast notification shows: "PDF Downloaded! Now opening WhatsApp... Attach the PDF manually from your downloads."
+## Performance fixes in the same release (v13.7)
 
-**Icon Mapping:**
-```typescript
-const ICON_MAP: Record<string, any> = {
-  'fa-box': Smartphone,
-  'fa-tools': Wrench,
-  'fa-check': CheckCircle2,
-  'fa-credit-card': CreditCard,
-  'fa-heart': Heart,
-  'fa-file-invoice': FileText,  // NEW
-}
-```
+- **PanelBoundary memo fix** — every tab switch used to re-render ALL mounted
+  panels (new `children` elements + changed `active` prop defeated `memo`).
+  Now panels render via stable `Comp` refs + `isSelected`, so only the
+  boundaries that actually flip re-render. Panel switching is now near-instant
+  even with 6-10 heavy panels mounted.
+- **Single-layout rendering** — Invoices, Quotations, Customers, Stock, Jobs,
+  Payments no longer render BOTH the mobile card list and the desktop table
+  (one was always hidden by CSS — phones were rendering 200 invisible table
+  rows). Now only the viewport-matching layout is rendered
+  (`useIsDesktop` hook, `src/hooks/use-media-query.ts`).
+- **Instant scroll on panel switch** (was animated smooth-scroll).
+- **LRU mounted-panels cap 6 → 10** — fewer evictions/remounts/refetches now
+  that hidden panels no longer re-render.
 
-## 🎯 How It Works
+## Testing checklist
 
-### For Service Jobs:
-
-1. **Jobs Panel** → Select any job
-2. Click **WhatsApp** button (green message icon)
-3. **6 Templates** will appear:
-   - Device Received (Blue)
-   - In Progress (Amber)
-   - Completed (Green)
-   - **Share Invoice** (Purple) ← **NEW!**
-   - Payment Reminder (Purple)
-   - Delivered (Gray)
-
-4. Click **"Share Invoice"**:
-   - ✅ PDF automatically downloads to your device
-   - ✅ WhatsApp opens with complete invoice message
-   - ✅ Manually attach the downloaded PDF in WhatsApp
-
-### For Regular Invoices & Quotations:
-
-**Already Implemented** in `src/lib/whatsapp.ts`:
-
-The `shareWhatsAppPdf()` function handles:
-- **Mobile (Chrome/Safari)**: Native share with PDF file automatically attached
-- **Desktop**: PDF downloads + WhatsApp Web opens with message
-
-**Usage:**
-- Invoices Panel → Click Share icon (green) → PDF + message sent
-- Quotations Panel → Click Share icon → PDF + message sent
-
-## 📱 Mobile vs Desktop Behavior
-
-### Mobile (Chrome/Safari):
-1. Native Web Share API
-2. PDF file automatically attached
-3. User selects WhatsApp from share sheet
-4. Message + PDF both shared together ✓
-
-### Desktop:
-1. PDF downloads to Downloads folder
-2. Message copied to clipboard (if supported)
-3. WhatsApp Web opens with message pre-filled
-4. User manually attaches the downloaded PDF
-5. User clicks send
-
-## 🔧 Technical Implementation
-
-### Service Invoice PDF Generation:
-```typescript
-const pdfBuffer = await generateInvoicePdf({
-  // ... other params
-  docType: 'invoice',
-  gstMode: 'non-gst',  // ← NEW: Hides all GST details
-  // ...
-})
-```
-
-### WhatsApp Share Flow:
-```typescript
-if (type === 'invoice') {
-  // Step 1: Download PDF
-  const pdfUrl = `/api/service-pdf/${job.id}`
-  const link = document.createElement('a')
-  link.href = pdfUrl
-  link.download = `Service-Invoice-${job.jobId}.pdf`
-  link.click()
-  
-  // Step 2: Open WhatsApp with message
-  setTimeout(() => {
-    const msg = buildWhatsAppMessage('invoice', jobData, shopData)
-    window.open(buildWhatsAppLink(customerMobile, msg), '_blank')
-  }, 1000)
-}
-```
-
-## 🎨 UI Changes
-
-### Service WhatsApp Modal:
-- New purple "Share Invoice" button with FileText icon
-- Professional invoice details in message
-- Item-wise breakdown with quantities and prices
-- Payment summary with UPI details
-
-## 📋 Files Modified
-
-1. `src/app/api/service-pdf/[id]/route.ts` - Added `gstMode: 'non-gst'`
-2. `src/lib/whatsapp-templates.ts` - Added invoice template
-3. `src/components/ServiceWhatsAppModal.tsx` - Added PDF download + share flow
-
-## ✅ Testing Checklist
-
-- [ ] Service job invoice PDF generates without GST details
-- [ ] "Share Invoice" option appears in WhatsApp modal
-- [ ] PDF downloads when clicking "Share Invoice"
-- [ ] WhatsApp opens with complete invoice message
-- [ ] Message includes job details and item breakdown
-- [ ] UPI details shown if balance is pending
-- [ ] Works on mobile (native share)
-- [ ] Works on desktop (download + WhatsApp Web)
-
-## 🚀 Next Steps
-
-User ko test karna hoga:
-1. Service job create karo with parts
-2. Complete karo job
-3. WhatsApp button click karo
-4. "Share Invoice" select karo
-5. PDF download hona chahiye + WhatsApp khulna chahiye
-6. Message me complete invoice details dikhne chahiye
-7. WhatsApp me manually PDF attach karke send karo
-
-## 💡 Notes
-
-- WhatsApp Web API (`wa.me`) does NOT support direct file attachment
-- Only mobile native share API can attach files automatically
-- Desktop users must manually attach the downloaded PDF
-- This is a limitation of WhatsApp, not our implementation
-- Message template is professional and includes all invoice details
+- [ ] Share an invoice on mobile → WhatsApp opens in the customer's chat with
+      the message pre-filled + PDF in Downloads → attach → text arrives as caption
+- [ ] Share a quotation → identical behavior
+- [ ] Service job → WhatsApp button → "Share Invoice" → identical behavior
+- [ ] Male customer (e.g. "Ramesh Kumar") → "Respected Sir,"
+- [ ] Female customer (e.g. "Priya" / "Mrs. Sharma") → "Respected Madam,"
+- [ ] Business customer (e.g. "Rahul Traders") → "Dear Rahul,"
+- [ ] Customer dialog → Gender dropdown saves and is used on next share
+- [ ] Tab switching between busy panels feels instant (no re-render lag)

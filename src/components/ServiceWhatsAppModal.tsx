@@ -16,6 +16,7 @@
 import { useFetch, apiPut, invalidate } from '@/lib/api'
 import { useToast } from '@/hooks/use-toast'
 import { buildWhatsAppMessage, buildWhatsAppLink, WHATSAPP_TEMPLATES } from '@/lib/whatsapp-templates'
+import { shareWhatsAppPdf } from '@/lib/whatsapp'
 import { X, MessageCircle, CheckCircle2, CreditCard, Heart, Smartphone, Wrench, FileText, Undo2 } from 'lucide-react'
 import { useState, useEffect } from 'react'
 
@@ -73,74 +74,30 @@ export function ServiceWhatsAppModal({ jobId, onClose }: Props) {
   const sendTemplate = async (type: typeof WHATSAPP_TEMPLATES[number]['type']) => {
     if (!mounted) return
 
-    // For invoice template, download PDF first, then open WhatsApp with message.
-    // v12.4: Use the new POST /api/doc-html/[id] endpoint — same HTML engine
-    // as the on-screen preview, so the PDF matches what the user sees.
+    // v13.7: 'Share Invoice' now uses the SAME unified share flow as the
+    // Invoices and Quotations panels (shareWhatsAppPdf):
+    //   1. PDF auto-downloads (doc-html engine, matches the preview)
+    //   2. WhatsApp opens in the customer's chat with the respectful message
+    //      pre-filled (Sir/Madam) + clipboard backup
+    //   3. User attaches the just-downloaded PDF — the pre-filled text rides
+    //      along as the document caption → customer gets PDF + text together.
+    // (If the WhatsApp Cloud API IS configured, it's fully automatic.)
     if (type === 'invoice') {
-      // Step 1: Download the PDF (uses fetch so we can fall back gracefully).
-      try {
-        const pdfUrl = `/api/doc-html/${job.id}?type=service&banner=flyer&template=tally-classic`
-        const resp = await fetch(pdfUrl, { method: 'POST' })
-        let blob: Blob
-        const contentType = resp.headers.get('Content-Type') || ''
-        if (resp.ok && !contentType.includes('text/html')) {
-          blob = await resp.blob()
-        } else {
-          // Fallback: old jsPDF endpoint (returns a different-looking PDF
-          // but still a valid PDF file the user can attach).
-          const fallbackResp = await fetch(`/api/service-pdf/${job.id}`)
-          if (!fallbackResp.ok) throw new Error('Failed to generate PDF')
-          blob = await fallbackResp.blob()
-        }
-        const downloadUrl = URL.createObjectURL(blob)
-        const link = document.createElement('a')
-        link.href = downloadUrl
-        link.download = `Service-Invoice-${job.jobId}.pdf`
-        document.body.appendChild(link)
-        link.click()
-        document.body.removeChild(link)
-        setTimeout(() => URL.revokeObjectURL(downloadUrl), 3000)
-      } catch (e: any) {
-        console.warn('[ServiceWhatsAppModal] PDF download failed:', e?.message)
-      }
-
-      toast({
-        title: '📄 PDF Downloaded!',
-        description: 'Now opening WhatsApp... Attach the PDF manually from your downloads.',
-        duration: 5000
+      const jobTotal = Number(job.finalAmount) || Number(job.estimatedAmount) || 0
+      const paid = (Number(job.paidAmount) || 0) + (Number(job.advanceAmount) || 0)
+      await shareWhatsAppPdf({
+        docId: job.id,
+        docType: 'service',
+        docNumber: String(job.jobId || ''),
+        customerName: String(job.customerName || 'Walk-in Customer'),
+        customerPhone: String(job.customerMobile || ''),
+        customerGender: String(job.customerGender || '') || undefined,
+        grandTotal: jobTotal,
+        amountDue: Math.max(0, jobTotal - paid),
+        notes: String(job.diagnosisNotes || job.notes || ''),
+        toast,
+        gstMode: 'non-gst',
       })
-
-      // Step 2: Wait a bit, then open WhatsApp with the message
-      setTimeout(() => {
-        const msg = buildWhatsAppMessage(type, {
-          id: job.jobId,
-          customerName: job.customerName,
-          customerMobile: job.customerMobile,
-          deviceType: job.deviceType,
-          brandModel: job.brandModel,
-          problemDesc: job.problemDesc,
-          accessories: job.accessories,
-          date: job.date,
-          estimatedAmount: Number(job.estimatedAmount) || 0,
-          advanceAmount: Number(job.advanceAmount) || 0,
-          paidAmount: Number(job.paidAmount) || 0,
-          finalAmount: Number(job.finalAmount) || 0,
-          serviceCharge: Number(job.serviceCharge) || 0,
-          spareParts: (job.partsUsed || []).map((p: any) => ({
-            name: p.name,
-            qty: Number(p.qty) || 1,
-            total: (Number(p.sellPrice || p.price || 0)) * (Number(p.qty) || 1),
-          })),
-        }, {
-          businessName: bn,
-          businessMobile: shop?.phone || '',
-          businessAddress: shop?.address || '',
-          whatsappNumber: shop?.whatsappNumber || '',
-          upiId: shop?.upiId || '',
-        })
-        window.open(buildWhatsAppLink(job.customerMobile, msg), '_blank')
-      }, 1000)
-
       onClose()
       return
     }
@@ -149,6 +106,7 @@ export function ServiceWhatsAppModal({ jobId, onClose }: Props) {
     const msg = buildWhatsAppMessage(type, {
       id: job.jobId,
       customerName: job.customerName,
+      customerGender: job.customerGender,
       customerMobile: job.customerMobile,
       deviceType: job.deviceType,
       brandModel: job.brandModel,

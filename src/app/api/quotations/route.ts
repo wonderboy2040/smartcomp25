@@ -15,7 +15,15 @@ export async function GET(req: NextRequest) {
     const search = url.searchParams.get('search')
     const limit = parseInt(url.searchParams.get('limit') || '200')
 
-    let quotations = await listRows<any>('Quotations')
+    const [quotationRows, customerRows] = await Promise.all([
+      listRows<any>('Quotations'),
+      // v13.7: parallel cached read — supplies the customer's gender for the
+      // respectful WhatsApp share greeting ("Respected Sir/Madam").
+      listRows<any>('Customers', { useCache: true }).catch(() => [] as any[]),
+    ])
+    const genderMap = new Map<string, string>()
+    for (const c of customerRows || []) genderMap.set(String(c.id), String(c.gender || ''))
+    let quotations = quotationRows
     if (customerId) quotations = quotations.filter((q) => q.customerId === customerId)
     if (status) quotations = quotations.filter((q) => q.status === status)
     if (search) {
@@ -38,6 +46,7 @@ export async function GET(req: NextRequest) {
         name: q.customerName,
         phone: q.customerPhone,
         gstNumber: q.customerGstin,
+        gender: genderMap.get(String(q.customerId)) || '',
       },
       subtotal: Number(q.subtotal) || 0,
       gstAmount: Number(q.gstAmount) || 0,

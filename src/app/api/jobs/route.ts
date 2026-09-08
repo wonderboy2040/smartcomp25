@@ -159,6 +159,9 @@ export async function POST(req: NextRequest) {
       trackToken,
       customerName,
       customerMobile,
+      // v13.7: optional — stored when the job form knows the customer's
+      // gender so WhatsApp messages say "Respected Sir/Madam".
+      customerGender: String(body?.customerGender || ''),
       deviceType: String(body?.deviceType || 'Laptop'),
       brandModel: String(body?.brandModel || ''),
       serialNumber: String(body?.serialNumber || ''),

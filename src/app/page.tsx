@@ -163,7 +163,11 @@ function HomeInner() {
   // and burning memory on long sessions. We keep at most MAX_MOUNTEDPanels
   // panels alive, evicting the least-recently-used when the cap is hit.
   // Dashboard is always alive (rendered eagerly, not via lazy()).
-  const MAX_MOUNTED_PANELS = 6
+  // v13.7: 6 → 10. With the PanelBoundary memo fix, hidden panels no longer
+  // re-render on tab switches, so keeping more panels alive is cheap — while
+  // an eviction forces a full remount + refetch + Suspense flash, which the
+  // user perceives as "lag" when bouncing between busy panels.
+  const MAX_MOUNTED_PANELS = 10
   const [mountedPanels, setMountedPanels] = useState<Set<string>>(() => new Set([initialTab]))
   const { theme, toggleTheme } = useTheme()
 
@@ -333,12 +337,29 @@ function HomeInner() {
       return next
     })
     if (typeof window !== 'undefined') {
-      window.scrollTo({ top: 0, behavior: 'smooth' })
+      // v13.7 PERF: instant scroll — the animated smooth-scroll on every
+      // panel switch visibly "lagged" on long pages (mobile especially).
+      window.scrollTo({ top: 0, behavior: 'auto' })
     }
   }, [])
 
   const shopName = useMemo(() => shop?.name || 'Smart Computers', [shop])
   const activeItem = useMemo(() => NAV_ITEMS.find((item) => item.id === active) || NAV_ITEMS[0], [active])
+
+  // v13.7 PERF: stable elements for the two panels that need props. Combined
+  // with the Comp-based PanelBoundary below, only the boundaries whose
+  // isSelected/mounted actually flipped re-render on a tab switch — the other
+  // mounted panels (with their 200-row tables) are skipped entirely by memo.
+  // Previously EVERY tab switch re-rendered all mounted panels (new children
+  // elements + changed `active` prop defeated the memo) — that was the lag.
+  const dashboardPanelEl = useMemo(
+    () => <DashboardView onNavigate={handleNavigate} sheetsConnected={isConfigured} />,
+    [handleNavigate, isConfigured]
+  )
+  const commandPanelEl = useMemo(
+    () => <CommandCenterPanel onNavigate={handleNavigate} />,
+    [handleNavigate]
+  )
   const ActiveIcon = activeItem.icon
   const todayLabel = useMemo(() => new Intl.DateTimeFormat('en-IN', { weekday: 'short', day: '2-digit', month: 'short', timeZone: 'Asia/Kolkata' }).format(new Date()), [])
 
@@ -558,105 +579,39 @@ function HomeInner() {
                 <span className="text-slate-600">Lazy panels • 120s cache • Optimistic UI</span>
               </div>
             </div>
-            <PanelBoundary active={active} id="dashboard" mounted={mountedPanels.has('dashboard')}>
-              <DashboardView onNavigate={handleNavigate} sheetsConnected={isConfigured} />
-            </PanelBoundary>
-            <PanelBoundary active={active} id="stock" mounted={mountedPanels.has('stock')}>
-              <StockPanel />
-            </PanelBoundary>
-            <PanelBoundary active={active} id="invoices" mounted={mountedPanels.has('invoices')}>
-              <InvoicesPanel />
-            </PanelBoundary>
-            <PanelBoundary active={active} id="quotations" mounted={mountedPanels.has('quotations')}>
-              <QuotationsPanel />
-            </PanelBoundary>
-            <PanelBoundary active={active} id="payments" mounted={mountedPanels.has('payments')}>
-              <PaymentsPanel />
-            </PanelBoundary>
-            <PanelBoundary active={active} id="customers" mounted={mountedPanels.has('customers')}>
-              <CustomersPanel />
-            </PanelBoundary>
-            <PanelBoundary active={active} id="suppliers" mounted={mountedPanels.has('suppliers')}>
-              <SuppliersPanel />
-            </PanelBoundary>
-            <PanelBoundary active={active} id="purchaseorders" mounted={mountedPanels.has('purchaseorders')}>
-              <PurchaseOrdersPanel />
-            </PanelBoundary>
-            <PanelBoundary active={active} id="supplierpayments" mounted={mountedPanels.has('supplierpayments')}>
-              <SupplierPaymentsPanel />
-            </PanelBoundary>
-            <PanelBoundary active={active} id="whatsapp" mounted={mountedPanels.has('whatsapp')}>
-              <WhatsAppPanel />
-            </PanelBoundary>
-            <PanelBoundary active={active} id="jobs" mounted={mountedPanels.has('jobs')}>
-              <JobsPanel />
-            </PanelBoundary>
-            <PanelBoundary active={active} id="engineers" mounted={mountedPanels.has('engineers')}>
-              <EngineersPanel />
-            </PanelBoundary>
-            <PanelBoundary active={active} id="servicepayments" mounted={mountedPanels.has('servicepayments')}>
-              <ServicePaymentsPanel />
-            </PanelBoundary>
-            <PanelBoundary active={active} id="serials" mounted={mountedPanels.has('serials')}>
-              <SerialsPanel />
-            </PanelBoundary>
-            <PanelBoundary active={active} id="amc" mounted={mountedPanels.has('amc')}>
-              <AMCPanel />
-            </PanelBoundary>
-            <PanelBoundary active={active} id="expenses" mounted={mountedPanels.has('expenses')}>
-              <ExpensesPanel />
-            </PanelBoundary>
-            <PanelBoundary active={active} id="expensebudgets" mounted={mountedPanels.has('expensebudgets')}>
-              <ExpenseBudgetsPanel />
-            </PanelBoundary>
-            <PanelBoundary active={active} id="personal" mounted={mountedPanels.has('personal')}>
-              <PersonalExpenditurePanel />
-            </PanelBoundary>
-            <PanelBoundary active={active} id="stockadjustments" mounted={mountedPanels.has('stockadjustments')}>
-              <StockAdjustmentsPanel />
-            </PanelBoundary>
-            <PanelBoundary active={active} id="barcodelabels" mounted={mountedPanels.has('barcodelabels')}>
-              <BarcodeLabelsPanel />
-            </PanelBoundary>
-            <PanelBoundary active={active} id="customerstatements" mounted={mountedPanels.has('customerstatements')}>
-              <CustomerStatementsPanel />
-            </PanelBoundary>
-            <PanelBoundary active={active} id="backup" mounted={mountedPanels.has('backup')}>
-              <BackupPanel />
-            </PanelBoundary>
-            <PanelBoundary active={active} id="campaigns" mounted={mountedPanels.has('campaigns')}>
-              <CampaignsPanel />
-            </PanelBoundary>
-            <PanelBoundary active={active} id="credit" mounted={mountedPanels.has('credit')}>
-              <CreditControlPanel />
-            </PanelBoundary>
-            <PanelBoundary active={active} id="financials" mounted={mountedPanels.has('financials')}>
-              <FinancialsPanel />
-            </PanelBoundary>
-            <PanelBoundary active={active} id="gstreconciliation" mounted={mountedPanels.has('gstreconciliation')}>
-              <GstReconciliationPanel />
-            </PanelBoundary>
-            <PanelBoundary active={active} id="reports" mounted={mountedPanels.has('reports')}>
-              <ReportsPanel />
-            </PanelBoundary>
-            <PanelBoundary active={active} id="settings" mounted={mountedPanels.has('settings')}>
-              <SettingsPanel />
-            </PanelBoundary>
-            <PanelBoundary active={active} id="growth" mounted={mountedPanels.has('growth')}>
-              <GrowthHubPanel />
-            </PanelBoundary>
-            <PanelBoundary active={active} id="poster" mounted={mountedPanels.has('poster')}>
-              <PosterHubPanel />
-            </PanelBoundary>
-            <PanelBoundary active={active} id="command" mounted={mountedPanels.has('command')}>
-              <CommandCenterPanel onNavigate={handleNavigate} />
-            </PanelBoundary>
-            <PanelBoundary active={active} id="ai" mounted={mountedPanels.has('ai')}>
-              <AIIntelligencePanel />
-            </PanelBoundary>
-            <PanelBoundary active={active} id="automation" mounted={mountedPanels.has('automation')}>
-              <AutomationHubPanel />
-            </PanelBoundary>
+            <PanelBoundary isSelected={active === 'dashboard'} id="dashboard" mounted={mountedPanels.has('dashboard')}>{dashboardPanelEl}</PanelBoundary>
+            <PanelBoundary isSelected={active === 'stock'} id="stock" mounted={mountedPanels.has('stock')} Comp={StockPanel} />
+            <PanelBoundary isSelected={active === 'invoices'} id="invoices" mounted={mountedPanels.has('invoices')} Comp={InvoicesPanel} />
+            <PanelBoundary isSelected={active === 'quotations'} id="quotations" mounted={mountedPanels.has('quotations')} Comp={QuotationsPanel} />
+            <PanelBoundary isSelected={active === 'payments'} id="payments" mounted={mountedPanels.has('payments')} Comp={PaymentsPanel} />
+            <PanelBoundary isSelected={active === 'customers'} id="customers" mounted={mountedPanels.has('customers')} Comp={CustomersPanel} />
+            <PanelBoundary isSelected={active === 'suppliers'} id="suppliers" mounted={mountedPanels.has('suppliers')} Comp={SuppliersPanel} />
+            <PanelBoundary isSelected={active === 'purchaseorders'} id="purchaseorders" mounted={mountedPanels.has('purchaseorders')} Comp={PurchaseOrdersPanel} />
+            <PanelBoundary isSelected={active === 'supplierpayments'} id="supplierpayments" mounted={mountedPanels.has('supplierpayments')} Comp={SupplierPaymentsPanel} />
+            <PanelBoundary isSelected={active === 'whatsapp'} id="whatsapp" mounted={mountedPanels.has('whatsapp')} Comp={WhatsAppPanel} />
+            <PanelBoundary isSelected={active === 'jobs'} id="jobs" mounted={mountedPanels.has('jobs')} Comp={JobsPanel} />
+            <PanelBoundary isSelected={active === 'engineers'} id="engineers" mounted={mountedPanels.has('engineers')} Comp={EngineersPanel} />
+            <PanelBoundary isSelected={active === 'servicepayments'} id="servicepayments" mounted={mountedPanels.has('servicepayments')} Comp={ServicePaymentsPanel} />
+            <PanelBoundary isSelected={active === 'serials'} id="serials" mounted={mountedPanels.has('serials')} Comp={SerialsPanel} />
+            <PanelBoundary isSelected={active === 'amc'} id="amc" mounted={mountedPanels.has('amc')} Comp={AMCPanel} />
+            <PanelBoundary isSelected={active === 'expenses'} id="expenses" mounted={mountedPanels.has('expenses')} Comp={ExpensesPanel} />
+            <PanelBoundary isSelected={active === 'expensebudgets'} id="expensebudgets" mounted={mountedPanels.has('expensebudgets')} Comp={ExpenseBudgetsPanel} />
+            <PanelBoundary isSelected={active === 'personal'} id="personal" mounted={mountedPanels.has('personal')} Comp={PersonalExpenditurePanel} />
+            <PanelBoundary isSelected={active === 'stockadjustments'} id="stockadjustments" mounted={mountedPanels.has('stockadjustments')} Comp={StockAdjustmentsPanel} />
+            <PanelBoundary isSelected={active === 'barcodelabels'} id="barcodelabels" mounted={mountedPanels.has('barcodelabels')} Comp={BarcodeLabelsPanel} />
+            <PanelBoundary isSelected={active === 'customerstatements'} id="customerstatements" mounted={mountedPanels.has('customerstatements')} Comp={CustomerStatementsPanel} />
+            <PanelBoundary isSelected={active === 'backup'} id="backup" mounted={mountedPanels.has('backup')} Comp={BackupPanel} />
+            <PanelBoundary isSelected={active === 'campaigns'} id="campaigns" mounted={mountedPanels.has('campaigns')} Comp={CampaignsPanel} />
+            <PanelBoundary isSelected={active === 'credit'} id="credit" mounted={mountedPanels.has('credit')} Comp={CreditControlPanel} />
+            <PanelBoundary isSelected={active === 'financials'} id="financials" mounted={mountedPanels.has('financials')} Comp={FinancialsPanel} />
+            <PanelBoundary isSelected={active === 'gstreconciliation'} id="gstreconciliation" mounted={mountedPanels.has('gstreconciliation')} Comp={GstReconciliationPanel} />
+            <PanelBoundary isSelected={active === 'reports'} id="reports" mounted={mountedPanels.has('reports')} Comp={ReportsPanel} />
+            <PanelBoundary isSelected={active === 'settings'} id="settings" mounted={mountedPanels.has('settings')} Comp={SettingsPanel} />
+            <PanelBoundary isSelected={active === 'growth'} id="growth" mounted={mountedPanels.has('growth')} Comp={GrowthHubPanel} />
+            <PanelBoundary isSelected={active === 'poster'} id="poster" mounted={mountedPanels.has('poster')} Comp={PosterHubPanel} />
+            <PanelBoundary isSelected={active === 'command'} id="command" mounted={mountedPanels.has('command')}>{commandPanelEl}</PanelBoundary>
+            <PanelBoundary isSelected={active === 'ai'} id="ai" mounted={mountedPanels.has('ai')} Comp={AIIntelligencePanel} />
+            <PanelBoundary isSelected={active === 'automation'} id="automation" mounted={mountedPanels.has('automation')} Comp={AutomationHubPanel} />
           </div>
         </main>
       </PdfPreviewProvider>
@@ -665,18 +620,21 @@ function HomeInner() {
 }
 
 const PanelBoundary = memo(function PanelBoundary({
-  active,
+  isSelected,
   id,
   mounted,
+  Comp,
   children,
 }: {
-  active: string
+  isSelected: boolean
   id: string
   mounted: boolean
-  children: React.ReactNode
+  /** Prop-less panel component (module-level lazy ref — stable across renders). */
+  Comp?: React.ComponentType
+  /** Only for panels that need props — the parent MUST memoize the element. */
+  children?: React.ReactNode
 }) {
   if (!mounted) return null
-  const isSelected = active === id
   return (
     <div className={isSelected ? 'block premium-panel animate-in' : 'hidden'}>
       <PanelErrorBoundary panelId={id}>
@@ -690,7 +648,7 @@ const PanelBoundary = memo(function PanelBoundary({
             </div>
           }
         >
-          {children}
+          {Comp ? <Comp /> : children}
         </Suspense>
       </PanelErrorBoundary>
     </div>

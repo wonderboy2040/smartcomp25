@@ -34,11 +34,18 @@ export async function GET(req: NextRequest) {
 
     // v13: server-side cursor pagination when `paginated=1` is set
     if (usePagination && !search && !status && !paymentType && !customerId) {
-      const result = await listRowsPaginated<any>('Invoices', {
-        orderBy: { field: 'createdAt', direction: 'desc' },
-        limit,
-        cursor: cursor || undefined,
-      })
+      const [result, customerRows] = await Promise.all([
+        listRowsPaginated<any>('Invoices', {
+          orderBy: { field: 'createdAt', direction: 'desc' },
+          limit,
+          cursor: cursor || undefined,
+        }),
+        // v13.7: parallel cached read — supplies the customer's gender for the
+        // respectful WhatsApp share greeting ("Respected Sir/Madam").
+        listRows<any>('Customers', { useCache: true }).catch(() => [] as any[]),
+      ])
+      const genderMap = new Map<string, string>()
+      for (const c of customerRows || []) genderMap.set(String(c.id), String(c.gender || ''))
       const rows = result.rows.map((inv) => ({
         ...inv,
         customer: {
@@ -46,6 +53,7 @@ export async function GET(req: NextRequest) {
           name: inv.customerName,
           phone: inv.customerPhone,
           gstNumber: inv.customerGstin,
+          gender: genderMap.get(String(inv.customerId)) || '',
         },
         subtotal: Number(inv.subtotal) || 0,
         gstAmount: Number(inv.gstAmount) || 0,
@@ -66,7 +74,15 @@ export async function GET(req: NextRequest) {
       })
     }
 
-    let invoices = await listRows<any>('Invoices')
+    const [invoiceRows, customerRows] = await Promise.all([
+      listRows<any>('Invoices'),
+      // v13.7: parallel cached read — supplies the customer's gender for the
+      // respectful WhatsApp share greeting ("Respected Sir/Madam").
+      listRows<any>('Customers', { useCache: true }).catch(() => [] as any[]),
+    ])
+    const genderMap = new Map<string, string>()
+    for (const c of customerRows || []) genderMap.set(String(c.id), String(c.gender || ''))
+    let invoices = invoiceRows
 
     if (status) invoices = invoices.filter((i) => i.paymentStatus === status)
     if (paymentType) invoices = invoices.filter((i) => i.paymentType === paymentType)
@@ -90,6 +106,7 @@ export async function GET(req: NextRequest) {
         name: inv.customerName,
         phone: inv.customerPhone,
         gstNumber: inv.customerGstin,
+        gender: genderMap.get(String(inv.customerId)) || '',
       },
       subtotal: Number(inv.subtotal) || 0,
       gstAmount: Number(inv.gstAmount) || 0,

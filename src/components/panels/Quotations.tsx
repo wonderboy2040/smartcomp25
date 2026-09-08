@@ -13,6 +13,7 @@ import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from '@/components/ui/table'
 import { useToast } from '@/hooks/use-toast'
+import { useIsDesktop } from '@/hooks/use-media-query'
 import { formatCurrency, sumBy } from '@/lib/calc'
 import { usePdfPreview } from '@/lib/preview-context'
 import { DocForm } from './DocForm'
@@ -22,6 +23,8 @@ import { toCSV, downloadCSV } from '@/lib/utils'
 
 export function QuotationsPanel() {
   const { toast } = useToast()
+  // v13.7 PERF: render only the layout this viewport uses
+  const isDesktop = useIsDesktop()
   const [search, setSearch] = useState('')
   const [statusFilter, setStatusFilter] = useState('all')
   const [dialogOpen, setDialogOpen] = useState(false)
@@ -95,6 +98,9 @@ export function QuotationsPanel() {
       docNumber: String(q.number || ''),
       customerName: String(q.customer?.name || q.customerName || 'Customer'),
       customerPhone: String(q.customerPhone || q.customer?.phone || q.phone || q.mobile || ''),
+      // v13.7: explicit gender (if the customer record has it) → "Respected
+      // Sir/Madam" in the WhatsApp message; otherwise inferred from the name.
+      customerGender: String(q.customer?.gender || q.customerGender || '') || undefined,
       grandTotal: Number(q.grandTotal) || 0,
       notes: q.notes,
       toast,
@@ -276,6 +282,7 @@ export function QuotationsPanel() {
       </Card>
 
       {/* Mobile card layout */}
+      {!isDesktop && (
       <div className="sm:hidden space-y-3">
         {loading ? (
           <Card><CardContent className="text-center py-8 text-slate-500">Loading...</CardContent></Card>
@@ -339,7 +346,9 @@ export function QuotationsPanel() {
         )}
       </div>
 
+      )}
       {/* Desktop table */}
+      {isDesktop && (
       <Card className="border-slate-200 hidden sm:block">
         <CardContent className="p-0">
           <div className="overflow-x-auto">
@@ -459,6 +468,7 @@ export function QuotationsPanel() {
         </CardContent>
       </Card>
 
+      )}
       <DocForm
         key={editing?.id || 'new'}
         open={dialogOpen}

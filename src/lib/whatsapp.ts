@@ -1,6 +1,7 @@
 // WhatsApp helper - generates wa.me links and message templates
 // Note: For full automation, use WhatsApp Business API / Twilio / WATI
 import { BUSINESS_GROWTH } from './business-growth'
+import { respectfulGreeting } from './customer-gender'
 
 export interface WhatsAppMessage {
   to: string // phone number with country code, no + sign
@@ -106,7 +107,7 @@ export function buildInvoiceShareMessage(
   const num = String(number || '')
   const amt = Number(amount) || 0
   let msg = `*${sn}*\n\n`
-  msg += `Dear ${cn},\n\n`
+  msg += `${respectfulGreeting(cn)}\n\n`
   msg += `Please find attached ${docType === 'invoice' ? 'invoice' : 'quotation'}:\n\n`
   msg += `*${docType === 'invoice' ? 'Invoice' : 'Quotation'} No:* ${num}\n`
   msg += `*Amount:* Rs. ${amt.toFixed(2)}\n`
@@ -132,7 +133,7 @@ export function buildPaymentReminderMessage(
   const inum = String(invoiceNumber || '')
   const amt = Number(amount) || 0
   let msg = `*${sn}*\n\n`
-  msg += `Dear ${cn},\n\n`
+  msg += `${respectfulGreeting(cn)}\n\n`
   msg += `This is a gentle reminder for the pending payment:\n\n`
   msg += `*Invoice No:* ${inum}\n`
   msg += `*Amount Due:* Rs. ${amt.toFixed(2)}\n`
@@ -648,8 +649,8 @@ export function isEnquiryDay(date: Date = new Date()): boolean {
  * ─────────────────────────
  * Smart Computers
  *
- * Dear {Customer Name},
- *
+ * Respected Sir,            ← v13.7: respectful honorific
+ *                            (Sir / Madam / Dear {Name})
  * Thank you for your purchase. Please find your invoice attached.
  *
  * Invoice: {Number}
@@ -662,11 +663,14 @@ export function isEnquiryDay(date: Date = new Date()): boolean {
  * Smart Computers
  * ─────────────────────────
  *
- * Flow:
- *   1. Fetch the PDF from the server (/api/pdf or /api/service-pdf)
- *   2. On mobile (Chrome/Safari): navigator.share() with the PDF file
- *   3. On desktop: auto-download the PDF + copy message to clipboard +
- *      open wa.me with text message. User attaches PDF in WhatsApp Web.
+ * Flow (v13.7 — unified for invoice / quotation / service):
+ *   1. If WhatsApp Cloud API is configured (WA_TOKEN), the PDF is sent
+ *      server-side directly to the customer's WhatsApp with the message
+ *      as the document caption — nothing to do manually.
+ *   2. Otherwise: auto-download the PDF + open the customer's chat on
+ *      wa.me with the message pre-filled (+ clipboard backup). The user
+ *      attaches the just-downloaded PDF — one tap — and the pre-filled
+ *      text rides along as the document caption.
  */
 export async function shareWhatsAppPdf({
   docId,
@@ -674,6 +678,7 @@ export async function shareWhatsAppPdf({
   docNumber,
   customerName,
   customerPhone,
+  customerGender,
   grandTotal,
   amountDue,
   notes,
@@ -685,6 +690,7 @@ export async function shareWhatsAppPdf({
   docNumber: string
   customerName: string
   customerPhone?: string
+  customerGender?: string
   grandTotal: number
   amountDue?: number
   notes?: string
@@ -697,18 +703,19 @@ export async function shareWhatsAppPdf({
   // 1. Server-side via Cloud API (PREFERRED):
   //    POST /api/whatsapp/send-pdf generates the PDF on the server (using
   //    the SAME HTML engine as the on-screen preview, via WeasyPrint) and
-  //    sends it DIRECTLY to the customer's WhatsApp as a document message.
+  //    sends it DIRECTLY to the customer's WhatsApp as a document message
+  //    with the respectful message as its caption.
   //    The customer receives the PDF automatically — no manual attach needed.
   //    Works on BOTH mobile and desktop browsers.
   //
-  // 2. Client-side via Web Share API / wa.me link (FALLBACK):
-  //    If the Cloud API is not configured (no WA_TOKEN env), falls back to:
-  //    - Mobile: navigator.share({ files: [pdfFile] }) → WhatsApp share sheet
-  //      (PDF is auto-attached on Android Chrome / iOS Safari)
-  //    - Desktop: download the PDF + open wa.me with text message → user
-  //      manually attaches the PDF in WhatsApp Web
+  // 2. Client-side wa.me flow (FALLBACK, v13.7 unified):
+  //    If the Cloud API is not configured (no WA_TOKEN env):
+  //    - The PDF is auto-downloaded to the device
+  //    - The customer's WhatsApp chat opens with the message pre-filled
+  //      (wa.me?text=) — the text ALWAYS arrives with the PDF
+  //    - The message is also copied to the clipboard as backup
   //
-  // The PDF used in BOTH flows comes from the new POST /api/doc-html/[id]
+  // The PDF used in BOTH flows comes from the POST /api/doc-html/[id]
   // endpoint (HTML engine, matches the preview pixel-perfect).
   // ─────────────────────────────────────────────────────────────────────────
 
@@ -725,6 +732,7 @@ export async function shareWhatsAppPdf({
     docType,
     docNumber,
     customerName: custName,
+    customerGender,
     grandTotal: total,
     amountDue: due,
     isPaid,
@@ -811,8 +819,24 @@ export async function shareWhatsAppPdf({
     return
   }
 
-  const pdfFile = new File([blob], filename, { type: 'application/pdf' })
-
+  // v13.7 — UNIFIED SHARE FLOW (identical on every device, every doc type):
+  //
+  // The previous mobile path used navigator.share({ files, text }) and relied
+  // on the OS share sheet to deliver both the PDF and the caption. In
+  // practice WhatsApp (Android) DROPS the text when a file is shared through
+  // the share sheet — the customer received the PDF with no message. The
+  // user asked for the quotation-style flow everywhere:
+  //
+  //   1. The PDF is auto-downloaded to the device (Downloads folder).
+  //   2. WhatsApp opens DIRECTLY in the customer's chat with the full
+  //      respectful message pre-filled in the input box (wa.me?text=).
+  //      The message is also copied to the clipboard as a backup.
+  //   3. The user taps attach (📎) → the downloaded PDF is the most recent
+  //      file — one tap. The pre-filled text becomes the document caption,
+  //      so the customer receives ONE message: PDF + text together.
+  //
+  // This is deterministic — the text ALWAYS arrives — and behaves exactly the
+  // same on Android, iOS, and desktop (WhatsApp Web).
   const cleanPhone = String(customerPhone || '').replace(/[^\d]/g, '')
   // v12.5: Same normalization as generateWhatsAppLink — 10-digit Indian
   // mobile → prefix with 91 so wa.me actually finds the chat.
@@ -825,23 +849,7 @@ export async function shareWhatsAppPdf({
     targetPhone = cleanPhone
   }
 
-  // Mobile: try Native Web Share API (passes the actual PDF file attachment).
-  if (typeof navigator !== 'undefined' && navigator.canShare && navigator.canShare({ files: [pdfFile] })) {
-    try {
-      await navigator.share({
-        files: [pdfFile],
-        title: `${titleLabel} ${docNumber}`,
-        text: messageText,
-      })
-      if (toast) toast({ title: 'Shared to WhatsApp ✓', duration: 3000 })
-      return
-    } catch (shareErr: any) {
-      if (shareErr?.name === 'AbortError') return
-      console.warn('Native share failed, falling back to download:', shareErr?.message)
-    }
-  }
-
-  // Desktop fallback: auto-download PDF + copy message + open wa.me.
+  // Step 1: download the PDF so it is ready to attach.
   const downloadUrl = URL.createObjectURL(blob)
   const a = document.createElement('a')
   a.href = downloadUrl
@@ -851,6 +859,8 @@ export async function shareWhatsAppPdf({
   document.body.removeChild(a)
   setTimeout(() => URL.revokeObjectURL(downloadUrl), 3000)
 
+  // Step 2: copy the message to the clipboard (backup for WhatsApp Web,
+  // where wa.me text pre-fill is less reliable).
   let clipboardCopied = false
   try {
     if (navigator.clipboard && navigator.clipboard.writeText) {
@@ -861,6 +871,7 @@ export async function shareWhatsAppPdf({
     // Clipboard API can fail if not focused or in non-secure context
   }
 
+  // Step 3: open the customer's WhatsApp chat with the message pre-filled.
   const waUrl = targetPhone
     ? `https://wa.me/${targetPhone}?text=${encodeURIComponent(messageText)}`
     : `https://wa.me/?text=${encodeURIComponent(messageText)}`
@@ -869,10 +880,10 @@ export async function shareWhatsAppPdf({
 
   if (toast) {
     toast({
-      title: 'PDF Downloaded & WhatsApp Opened ✓',
+      title: `${titleLabel} PDF Downloaded & WhatsApp Opened ✓`,
       description: clipboardCopied
-        ? `Message copied to clipboard. Attach ${filename} in WhatsApp.`
-        : `Please attach ${filename} in the WhatsApp chat window.`,
+        ? `Message is pre-filled in the chat. Attach ${filename} (recent download) and send — text will be the caption.`
+        : `Message is pre-filled in the chat. Please attach ${filename} and send.`,
       duration: 7000,
     })
   }
@@ -897,20 +908,22 @@ function buildProfessionalShareMessage(opts: {
   docType: 'invoice' | 'quotation' | 'service'
   docNumber: string
   customerName: string
+  customerGender?: string
   grandTotal: number
   amountDue: number
   isPaid: boolean
   notes?: string
 }): string {
-  const { docType, docNumber, customerName, grandTotal, amountDue, isPaid, notes } = opts
+  const { docType, docNumber, customerName, customerGender, grandTotal, amountDue, isPaid, notes } = opts
 
   const titleLabel =
     docType === 'invoice' ? 'Invoice' :
     docType === 'quotation' ? 'Quotation' :
     'Service Invoice'
 
-  // Use first name for a warmer greeting; fall back to full name
-  const firstName = customerName.split(/\s+/)[0] || customerName
+  // v13.7: respectful greeting — "Respected Sir," / "Respected Madam,"
+  // (explicit customer gender if set, else inferred from the name).
+  const greeting = respectfulGreeting(customerName, customerGender)
 
   // Status line — clean and conditional
   const statusLine = docType === 'quotation'
@@ -933,7 +946,7 @@ function buildProfessionalShareMessage(opts: {
   return (
     `Smart Computers\n` +
     `\n` +
-    `Hi ${firstName},\n` +
+    `${greeting}\n` +
     `\n` +
     `Thank you for your ${docType === 'quotation' ? 'enquiry' : 'purchase'}. Please find your ${titleLabel.toLowerCase()} attached.\n` +
     `\n` +

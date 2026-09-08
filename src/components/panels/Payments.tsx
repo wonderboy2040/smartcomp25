@@ -15,11 +15,14 @@ import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from '@/components/ui/table'
 import { useToast } from '@/hooks/use-toast'
+import { useIsDesktop } from '@/hooks/use-media-query'
 import { formatCurrency } from '@/lib/calc'
 import { Plus, Wallet, TrendingUp, Trash2, Search, AlertCircle, MessageCircle, CreditCard, Loader2 } from 'lucide-react'
 
 export function PaymentsPanel() {
   const { toast } = useToast()
+  // v13.7 PERF: render only the layout this viewport uses
+  const isDesktop = useIsDesktop()
   const [tab, setTab] = useState<'pending' | 'history'>('pending')
   const [search, setSearch] = useState('')
   const [dialogOpen, setDialogOpen] = useState(false)
@@ -218,8 +221,8 @@ export function PaymentsPanel() {
         </CardContent>
       </Card>
 
-      {/* Mobile: Pending invoices cards */}
-      {tab === 'pending' && (
+      {/* Mobile: Pending invoices cards — v13.7: only rendered on phones */}
+      {tab === 'pending' && !isDesktop && (
         <div className="sm:hidden space-y-3">
           {invLoading ? (
             <Card><CardContent className="text-center py-8 text-slate-500">Loading...</CardContent></Card>
@@ -270,8 +273,8 @@ export function PaymentsPanel() {
         </div>
       )}
 
-      {/* Mobile: Payment history cards */}
-      {tab === 'history' && (
+      {/* Mobile: Payment history cards — v13.7: only rendered on phones */}
+      {tab === 'history' && !isDesktop && (
         <div className="sm:hidden space-y-3">
           {payLoading ? (
             <Card><CardContent className="text-center py-8 text-slate-500">Loading...</CardContent></Card>
@@ -314,6 +317,7 @@ export function PaymentsPanel() {
       )}
 
       {/* Desktop tables */}
+      {isDesktop && (
       <Card className="border-slate-200 hidden sm:block">
         <CardContent className="p-0">
           <div className="overflow-x-auto">
@@ -456,6 +460,7 @@ export function PaymentsPanel() {
         </CardContent>
       </Card>
 
+      )}
       {/* Payment dialog */}
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
         <DialogContent className="sm:max-w-md max-h-[100dvh] overflow-y-auto">

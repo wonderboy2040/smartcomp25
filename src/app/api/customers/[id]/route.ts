@@ -27,7 +27,7 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
     const { id } = await params
     const body = await req.json()
     const data: any = {}
-    for (const f of ['name', 'phone', 'email', 'address', 'gstNumber', 'state']) {
+    for (const f of ['name', 'phone', 'email', 'address', 'gstNumber', 'state', 'gender']) {
       if (body[f] !== undefined) data[f] = body[f]
     }
     if (body.creditBalance !== undefined) data.creditBalance = Number(body.creditBalance)

@@ -30,6 +30,9 @@ export const customerSchema = z.object({
   address: z.string().max(500).optional(),
   gstNumber: z.string().max(20).optional(),
   state: z.string().max(100).optional(),
+  // v13.7: optional gender — used for the respectful "Respected Sir/Madam"
+  // greeting in WhatsApp share messages (invoices, quotations, service jobs).
+  gender: z.enum(['male', 'female', 'other']).optional(),
   creditLimit: z.number().min(0).optional(),
   creditDays: z.number().min(0).optional(),
   birthday: z.string().optional(),

@@ -17,6 +17,7 @@ import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from '@/components/ui/table'
 import { useToast } from '@/hooks/use-toast'
+import { useIsDesktop } from '@/hooks/use-media-query'
 import { formatCurrency, sumBy } from '@/lib/calc'
 import { Plus, Search, Pencil, Trash2, Package, AlertTriangle, Download, Tag, Folder, IndianRupee, TrendingUp, Boxes, Percent, FileText, Hash, KeyRound, ScanLine, Building2 } from 'lucide-react'
 import { toCSV, downloadCSV } from '@/lib/utils'
@@ -51,6 +52,8 @@ export function StockPanel() {
   const [purchaseDialogOpen, setPurchaseDialogOpen] = useState(false)
   const [editing, setEditing] = useState<any | null>(null)
   const { toast } = useToast()
+  // v13.7 PERF: render only the layout this viewport uses
+  const isDesktop = useIsDesktop()
 
   const { data: items, loading, refetch } = useFetch<any[]>('/api/items', undefined)
   const { data: suppliers } = useFetch<any[]>('/api/suppliers?active=true', undefined)
@@ -291,6 +294,7 @@ export function StockPanel() {
       </Card>
 
       {/* Mobile card layout */}
+      {!isDesktop && (
       <div className="sm:hidden space-y-3">
         {loading ? (
           <Card><CardContent className="text-center py-8 text-slate-500">Loading...</CardContent></Card>
@@ -361,7 +365,9 @@ export function StockPanel() {
         )}
       </div>
 
+      )}
       {/* Desktop table layout */}
+      {isDesktop && (
       <Card className="border-slate-200 hidden sm:block">
         <CardContent className="p-0">
           <div className="overflow-x-auto">
@@ -474,6 +480,7 @@ export function StockPanel() {
         </CardContent>
       </Card>
 
+      )}
       <ItemDialog
         open={dialogOpen}
         onOpenChange={setDialogOpen}
