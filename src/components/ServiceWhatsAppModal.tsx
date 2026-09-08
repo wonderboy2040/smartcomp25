@@ -61,7 +61,7 @@ export function ServiceWhatsAppModal({ jobId, onClose }: Props) {
 
   if (!job) {
     return (
-      <div className="fixed inset-0 flex items-center justify-center z-[60] p-4 bg-black/60 backdrop-blur-sm">
+      <div className="fixed inset-0 flex items-center justify-center z-[60] p-4 bg-black/60">
         <div className="bg-white rounded-2xl p-8 shadow-xl border">
           <p className="text-slate-900 font-medium">Loading job...</p>
         </div>
@@ -208,7 +208,7 @@ export function ServiceWhatsAppModal({ jobId, onClose }: Props) {
 
   return (
     <div
-      className="fixed inset-0 flex items-center justify-center z-[60] p-4 bg-black/70 backdrop-blur-md"
+      className="fixed inset-0 flex items-center justify-center z-[60] p-4 bg-black/70"
       onClick={(e) => { if (e.target === e.currentTarget) onClose() }}
     >
       <div className="bg-white rounded-2xl max-w-md w-full p-0 shadow-2xl border border-slate-200 overflow-hidden animate-in fade-in zoom-in duration-200">

@@ -259,7 +259,7 @@ function commitCreatedRow(base: string, tempId: string, row: any) {
         // If the real row was ALSO in the list (from a racing refetch),
         // remove the duplicate (the one at realIdx, which is different from idx)
         if (realIdx !== -1 && realIdx !== idx) {
-          list.splice(realIdx > idx ? realIdx : realIdx, 1)
+          list.splice(realIdx, 1) // v13.8: removed no-op ternary — always realIdx
         }
         return list
       }
@@ -373,11 +373,18 @@ function saveCacheToStorage(): void {
       } catch {}
     }
     localStorage.setItem(LS_CACHE_KEY, JSON.stringify(toSave))
+    cacheDirty = false
   } catch {}
 }
 
 // Debounced save — don't write to localStorage on every cache update
 let saveTimer: ReturnType<typeof setTimeout> | null = null
+// v13.8 PERF: dirty flag — the 30s interval below used to serialize the
+// entire persisted cache (multi-MB of JSON.stringify on the main thread)
+// every 30 seconds even when nothing had changed, causing recurring jank
+// while the app sat idle. Now it only writes after a real cache change,
+// and never while the tab is hidden (beforeunload still flushes).
+let cacheDirty = false
 function debouncedSave(): void {
   if (saveTimer) clearTimeout(saveTimer)
   saveTimer = setTimeout(() => {
@@ -391,8 +398,12 @@ if (typeof window !== 'undefined') {
   loadCacheFromStorage()
   // Save before page unload (covers refresh/close)
   window.addEventListener('beforeunload', saveCacheToStorage)
-  // Also save periodically
-  setInterval(debouncedSave, 30 * 1000)
+  // Also save periodically — but ONLY when the cache actually changed and
+  // the tab is visible (v13.8). A hidden tab's localStorage write can wait
+  // for the beforeunload flush; skipping it keeps the main thread free.
+  setInterval(() => {
+    if (cacheDirty && !document.hidden) debouncedSave()
+  }, 30 * 1000)
 }
 
 // ===== QUANTUM CACHE (like index.html PWA) =====
@@ -570,8 +581,12 @@ function getQuantumMem(key: string): { data: any; hash: string } | null {
   return { data: entry.data, hash: entry.hash }
 }
 
-function setQuantumMem(key: string, data: any): string {
-  const hash = computeHash(data)
+function setQuantumMem(key: string, data: any, precomputedHash?: string): string {
+  // v13.8 PERF: accept a pre-computed hash — doFetchWithRetry already
+  // stringifies the payload once to compare against lastDataHash; hashing
+  // again here meant every fetch paid for JSON.stringify twice (50-200ms
+  // freezes on multi-MB lists like /api/jobs on low-end phones).
+  const hash = precomputedHash || computeHash(data)
   quantumMemCache.set(key, { data, hash, expires: Date.now() + QUANTUM_MEM_TTL })
   return hash
 }
@@ -616,17 +631,22 @@ function notify(key: string) {
   }
 }
 
-function notifyPattern(prefix: string) {
+function notifyPattern(prefix: string, skip?: Set<string>) {
   for (const key of Array.from(subscribers.keys())) {
+    // v13.8 PERF: skip keys the caller already notified — the old code
+    // notified every matching key TWICE per invalidation (once from the
+    // cache-key loop, once here), doubling subscriber re-renders after
+    // every save (the post-save "freeze").
+    if (skip && skip.has(key)) continue
     if (key === prefix || key.startsWith(prefix + '?') || key.startsWith(prefix + '#')) {
       notify(key)
     }
   }
 }
 
-function setCache(key: string, data: any) {
+function setCache(key: string, data: any, precomputedHash?: string) {
   const prevHash = lastDataHash.get(key)
-  const newHash = setQuantumMem(key, data)
+  const newHash = setQuantumMem(key, data, precomputedHash)
   cache.set(key, data)
   timestamps.set(key, Date.now())
   if (prevHash !== newHash) {
@@ -634,6 +654,7 @@ function setCache(key: string, data: any) {
     notify(key)
   }
   // Persist to localStorage (debounced) for instant loading on next visit
+  cacheDirty = true
   debouncedSave()
 }
 
@@ -689,6 +710,7 @@ export function invalidate(prefix: string) {
   }
 
   // Non-dashboard invalidations happen immediately
+  const notified = new Set(affectedKeys)
   for (const key of affectedKeys) {
     notify(key)
     const subs = subscribers.get(key)
@@ -696,7 +718,7 @@ export function invalidate(prefix: string) {
       doFetch(key)
     }
   }
-  notifyPattern(prefix)
+  notifyPattern(prefix, notified)
 }
 
 function listUrlOf(detailUrl: string): string {
@@ -834,10 +856,15 @@ async function doFetchWithRetry(url: string, options?: RequestInit, attempt = 1)
     data = mergeRecentlyUpdated(url, data)
 
     // Quantum: hash check like lastCloudDataHash to skip redundant re-renders.
+    // v13.8 PERF: the hash is computed ONCE, on the final (post-filter)
+    // payload, and passed through to setCache — previously the payload was
+    // stringified again inside setCache/setQuantumMem, doubling the cost of
+    // every fetch (visible as 50-200ms hitches on multi-MB lists).
     // IMPORTANT: do NOT mutate lastDataHash here — setCache() is the single owner
     // of that map. Pre-writing the hash here would make setCache's prevHash===newHash
     // check pass silently and skip notify(), leaving every useFetch subscriber stale.
-    const newHash = computeHash(data)
+    const filtered = applyDeletedFilter(url, data)
+    const newHash = computeHash(filtered)
     const oldHash = lastDataHash.get(url)
     if (oldHash === newHash) {
       // Data unchanged — refresh timestamp only, do not notify (prevents flicker)
@@ -851,10 +878,9 @@ async function doFetchWithRetry(url: string, options?: RequestInit, attempt = 1)
       }
     }
     lastPullTime.set(url, Date.now())
-    // setCache() computes hash, compares against prevHash, and notifies subscribers
+    // setCache() compares against prevHash, and notifies subscribers
     // ONLY when the data actually changed. It also writes quantumMemCache + localStorage.
-    const filtered = applyDeletedFilter(url, data)
-    setCache(url, filtered)
+    setCache(url, filtered, newHash)
     cache.delete(`__error:${url}`)
     cache.delete(`__stale:${url}`)
     return filtered

@@ -18,6 +18,7 @@ import {
 } from '@/components/ui/table'
 import { useToast } from '@/hooks/use-toast'
 import { useIsDesktop } from '@/hooks/use-media-query'
+import { useDebouncedValue } from '@/hooks/use-debounced-value'
 import { formatCurrency } from '@/lib/calc'
 import { usePdfPreview } from '@/lib/preview-context'
 import { ServiceWhatsAppModal } from '@/components/ServiceWhatsAppModal'
@@ -133,6 +134,10 @@ export function JobsPanel() {
   const isDesktop = useIsDesktop()
   const { openPreview } = usePdfPreview()
   const [search, setSearch] = useState('')
+  // v13.8 PERF: debounce the search term — the jobs list is the largest
+  // collection in the app; filtering + re-rendering it on every keystroke
+  // was the single biggest source of typing lag in this panel.
+  const debouncedSearch = useDebouncedValue(search, 250)
   const [statusFilter, setStatusFilter] = useState('all')
   const [priorityFilter, setPriorityFilter] = useState('all')
   const [dialogOpen, setDialogOpen] = useState(false)
@@ -147,8 +152,8 @@ export function JobsPanel() {
     return (jobs || []).filter((j) => {
       if (statusFilter !== 'all' && j.status !== statusFilter) return false
       if (priorityFilter !== 'all' && j.priority !== priorityFilter) return false
-      if (search) {
-        const q = search.toLowerCase()
+      if (debouncedSearch) {
+        const q = debouncedSearch.toLowerCase()
         return String(j?.jobId || '').toLowerCase().includes(q) ||
                String(j?.customerName || '').toLowerCase().includes(q) ||
                String(j?.customerMobile || '').includes(q) ||
@@ -156,7 +161,14 @@ export function JobsPanel() {
       }
       return true
     })
-  }, [jobs, statusFilter, priorityFilter, search])
+  }, [jobs, statusFilter, priorityFilter, debouncedSearch])
+
+  // v13.8 PERF: row render cap — jobs lists can run into the thousands;
+  // cap the rendered rows (newest first) and load more on demand.
+  const [rowCap, setRowCap] = useState(60)
+  useEffect(() => { setRowCap(60) }, [debouncedSearch, statusFilter, priorityFilter])
+  const visibleRows = useMemo(() => filtered.slice(0, rowCap), [filtered, rowCap])
+  const hiddenCount = filtered.length - visibleRows.length
 
   // Open service invoice preview when invoiceJobId changes
   useEffect(() => {
@@ -245,8 +257,9 @@ export function JobsPanel() {
       </div>
 
       {!isDesktop && (
+      <>
       <div className="sm:hidden space-y-3">
-        {loading ? <Card><CardContent className="text-center py-8 text-slate-600">Loading...</CardContent></Card> : filtered.length === 0 ? <Card><CardContent className="text-center py-8 text-slate-600"><Wrench className="w-12 h-12 mx-auto mb-2 text-slate-300" />No jobs yet.</CardContent></Card> : filtered.map((j) => {
+        {loading ? <Card><CardContent className="text-center py-8 text-slate-600">Loading...</CardContent></Card> : filtered.length === 0 ? <Card><CardContent className="text-center py-8 text-slate-600"><Wrench className="w-12 h-12 mx-auto mb-2 text-slate-300" />No jobs yet.</CardContent></Card> : visibleRows.map((j) => {
           const Icon = DEVICE_ICONS[j.deviceType] || Smartphone
           return (
             <Card key={j.id} className={`${PRIORITY_BORDER[j.priority] || ''}`}>
@@ -265,10 +278,15 @@ export function JobsPanel() {
           )
         })}
       </div>
-
+      {hiddenCount > 0 && (
+        <button onClick={() => setRowCap((c) => c + 100)} className="w-full py-3 rounded-xl bg-white border-2 border-dashed border-slate-300 text-slate-600 text-sm font-semibold hover:bg-slate-50">
+          Show {hiddenCount} more job{hiddenCount > 1 ? 's' : ''}
+        </button>
+      )}
+      </>
       )}
       {isDesktop && (
-      <Card className="hidden sm:block"><CardContent className="p-0"><div className="overflow-x-auto"><Table><TableHeader><TableRow className="bg-slate-50"><TableHead>Job ID</TableHead><TableHead>Customer</TableHead><TableHead>Device</TableHead><TableHead>Problem</TableHead><TableHead className="text-center">Priority</TableHead><TableHead className="text-center">Status</TableHead><TableHead className="text-right">Amount</TableHead><TableHead className="text-right">Actions</TableHead></TableRow></TableHeader><TableBody>{loading ? <TableRow><TableCell colSpan={8} className="text-center py-8 text-slate-600">Loading...</TableCell></TableRow> : filtered.length === 0 ? <TableRow><TableCell colSpan={8} className="text-center py-8 text-slate-600">No jobs found</TableCell></TableRow> : filtered.map((j) => { const Icon = DEVICE_ICONS[j.deviceType] || Smartphone; return (<TableRow key={j.id} className={`hover:bg-slate-50 cursor-pointer ${PRIORITY_BORDER[j.priority] || ''}`} onClick={() => setDetailJob(j)}><TableCell className="font-mono text-xs font-semibold text-slate-900">{j.jobId}</TableCell><TableCell><div className="font-semibold text-slate-900">{j.customerName || 'Unknown'}</div><div className="text-[10px] text-slate-500">{j.customerMobile}</div></TableCell><TableCell><div className="flex items-center gap-1.5"><Icon className="w-3.5 h-3.5 text-slate-500" /><span className="text-sm font-medium text-slate-800">{j.deviceType}</span></div><div className="text-[10px] text-slate-500">{j.brandModel}</div></TableCell><TableCell className="text-xs text-slate-700 max-w-[200px] truncate">{j.problemDesc}</TableCell><TableCell className="text-center">{j.priority ? <Badge variant="outline" className={`${PRIORITY_BADGE[j.priority] || ''} text-[9px] font-semibold`}>{j.priority}</Badge> : '-'}</TableCell><TableCell className="text-center"><Badge variant="outline" className={`${STATUS_COLORS[j.status] || ''} text-[10px] font-semibold`}>{j.status}</Badge></TableCell><TableCell className="text-right"><div className="font-bold text-slate-900">{formatCurrency(jobTotal(j))}</div>{jobBalance(j) > 0 && <div className="text-[10px] text-orange-600 font-semibold">Due {formatCurrency(jobBalance(j))}</div>}{isActiveJob(j) && jobAgeDays(j) >= 3 && <div className="text-[10px] text-red-600 font-semibold">{jobAgeDays(j)}d overdue</div>}</TableCell><TableCell className="text-right" onClick={(e) => e.stopPropagation()}><div className="flex justify-end gap-1"><Button size="sm" variant="outline" className="h-8 w-8 p-0 bg-white" onClick={() => setWhatsappJobId(j.id)}><MessageSquare className="w-3.5 h-3.5 text-green-600" /></Button><Button size="sm" variant="outline" className="h-8 w-8 p-0 bg-white" onClick={() => setInvoiceJobId(j.id)}><FileText className="w-3.5 h-3.5 text-purple-600" /></Button><Button size="sm" variant="outline" className="h-8 w-8 p-0 bg-white" onClick={() => setDetailJob(j)}><Eye className="w-3.5 h-3.5" /></Button><Button size="sm" variant="outline" className="h-8 w-8 p-0 bg-white text-red-500" onClick={() => handleDelete(j.id)}><Trash2 className="w-3.5 h-3.5" /></Button></div></TableCell></TableRow>) })}</TableBody></Table></div></CardContent></Card>
+      <Card className="hidden sm:block"><CardContent className="p-0"><div className="overflow-x-auto"><Table><TableHeader><TableRow className="bg-slate-50"><TableHead>Job ID</TableHead><TableHead>Customer</TableHead><TableHead>Device</TableHead><TableHead>Problem</TableHead><TableHead className="text-center">Priority</TableHead><TableHead className="text-center">Status</TableHead><TableHead className="text-right">Amount</TableHead><TableHead className="text-right">Actions</TableHead></TableRow></TableHeader><TableBody>{loading ? <TableRow><TableCell colSpan={8} className="text-center py-8 text-slate-600">Loading...</TableCell></TableRow> : filtered.length === 0 ? <TableRow><TableCell colSpan={8} className="text-center py-8 text-slate-600">No jobs found</TableCell></TableRow> : visibleRows.map((j) => { const Icon = DEVICE_ICONS[j.deviceType] || Smartphone; return (<TableRow key={j.id} className={`hover:bg-slate-50 cursor-pointer ${PRIORITY_BORDER[j.priority] || ''}`} onClick={() => setDetailJob(j)}><TableCell className="font-mono text-xs font-semibold text-slate-900">{j.jobId}</TableCell><TableCell><div className="font-semibold text-slate-900">{j.customerName || 'Unknown'}</div><div className="text-[10px] text-slate-500">{j.customerMobile}</div></TableCell><TableCell><div className="flex items-center gap-1.5"><Icon className="w-3.5 h-3.5 text-slate-500" /><span className="text-sm font-medium text-slate-800">{j.deviceType}</span></div><div className="text-[10px] text-slate-500">{j.brandModel}</div></TableCell><TableCell className="text-xs text-slate-700 max-w-[200px] truncate">{j.problemDesc}</TableCell><TableCell className="text-center">{j.priority ? <Badge variant="outline" className={`${PRIORITY_BADGE[j.priority] || ''} text-[9px] font-semibold`}>{j.priority}</Badge> : '-'}</TableCell><TableCell className="text-center"><Badge variant="outline" className={`${STATUS_COLORS[j.status] || ''} text-[10px] font-semibold`}>{j.status}</Badge></TableCell><TableCell className="text-right"><div className="font-bold text-slate-900">{formatCurrency(jobTotal(j))}</div>{jobBalance(j) > 0 && <div className="text-[10px] text-orange-600 font-semibold">Due {formatCurrency(jobBalance(j))}</div>}{isActiveJob(j) && jobAgeDays(j) >= 3 && <div className="text-[10px] text-red-600 font-semibold">{jobAgeDays(j)}d overdue</div>}</TableCell><TableCell className="text-right" onClick={(e) => e.stopPropagation()}><div className="flex justify-end gap-1"><Button size="sm" variant="outline" className="h-8 w-8 p-0 bg-white" onClick={() => setWhatsappJobId(j.id)}><MessageSquare className="w-3.5 h-3.5 text-green-600" /></Button><Button size="sm" variant="outline" className="h-8 w-8 p-0 bg-white" onClick={() => setInvoiceJobId(j.id)}><FileText className="w-3.5 h-3.5 text-purple-600" /></Button><Button size="sm" variant="outline" className="h-8 w-8 p-0 bg-white" onClick={() => setDetailJob(j)}><Eye className="w-3.5 h-3.5" /></Button><Button size="sm" variant="outline" className="h-8 w-8 p-0 bg-white text-red-500" onClick={() => handleDelete(j.id)}><Trash2 className="w-3.5 h-3.5" /></Button></div></TableCell></TableRow>) })}{hiddenCount > 0 && (<TableRow><TableCell colSpan={8} className="text-center py-3"><button onClick={() => setRowCap((c) => c + 100)} className="text-sm font-semibold text-indigo-600 hover:text-indigo-800">Show {hiddenCount} more job{hiddenCount > 1 ? 's' : ''}</button></TableCell></TableRow>)}</TableBody></Table></div></CardContent></Card>
 
       )}
       {dialogOpen && <NewJobDialog key={editing?.id || 'new'} open={dialogOpen} onOpenChange={setDialogOpen} editing={editing} onSaved={() => { setDialogOpen(false); refetch() }} />}

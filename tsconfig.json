@@ -38,6 +38,11 @@
   ],
   "exclude": [
     "node_modules",
-    "mobile"
+    "mobile",
+    "skills",
+    "upload",
+    "tool-results",
+    "download",
+    "scripts/**/*-test*"
   ]
 }

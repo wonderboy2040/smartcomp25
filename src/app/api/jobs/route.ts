@@ -22,8 +22,15 @@ function ageDays(createdAt: any) {
 }
 
 /**
- * GET /api/jobs — list all service jobs
- * Query: ?status=Pending ?engineer=xxx ?search=xxx
+ * GET /api/jobs — list service jobs
+ * Query: ?status=Pending ?engineer=xxx ?search=xxx ?limit=300
+ *
+ * v13.8 PERF: default limit 300 newest jobs. The Jobs sheet grows without
+ * bound and shipping EVERY row to the client (with per-row JSON parsing)
+ * made /api/jobs the heaviest endpoint in the app — megabytes of payload,
+ * triple main-thread serialization in the client cache, and 500-2000 row
+ * re-renders in the panel. 300 newest + on-demand "show more" keeps the
+ * payload bounded; ?limit=all restores the old behavior for exports.
  */
 export async function GET(req: NextRequest) {
   try {
@@ -36,6 +43,8 @@ export async function GET(req: NextRequest) {
     const statusFilter = url.searchParams.get('status')
     const engineerFilter = url.searchParams.get('engineer')
     const search = url.searchParams.get('search')
+    const limitParam = url.searchParams.get('limit')
+    const limit = limitParam === 'all' ? Number.POSITIVE_INFINITY : Math.max(1, parseInt(limitParam || '300', 10) || 300)
 
     let jobs = await listRows<any>('Jobs')
     if (statusFilter) jobs = jobs.filter((j) => String(j.status) === statusFilter)
@@ -55,6 +64,9 @@ export async function GET(req: NextRequest) {
 
     // Sort: newest first
     jobs.sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime())
+
+    // v13.8: cap the payload AFTER sorting so the newest jobs survive.
+    jobs = jobs.slice(0, limit)
 
     // Defensive coercion + parse status history + build track URL
     const result = jobs.map((j) => {

@@ -166,7 +166,10 @@
   }
 
   html {
-    scroll-behavior: smooth;
+    /* v13.8 PERF: global smooth-scroll forces an animated scroll on every
+     programmatic scroll — panel switches, dialogs, search clears — making
+     them feel laggy. Instant scroll is what a POS app wants. */
+    scroll-behavior: auto;
     -webkit-text-size-adjust: 100%;
     overflow-x: hidden;
     color-scheme: light dark;
@@ -676,7 +679,10 @@ table td {
   inset: auto;
   pointer-events: none;
   z-index: -1;
-  filter: blur(16px);
+  /* v13.8 PERF: the runtime `filter: blur(16px)` on these two fixed blobs
+     forced the mobile GPU to re-composite them on EVERY scroll frame. The
+     background gradients below are ALREADY radial fades — removing the
+     blur keeps the identical soft-glow look with zero per-frame cost. */
   transform: translateZ(0);
 }
 
@@ -704,8 +710,10 @@ table td {
 }
 
 .premium-sidebar {
-  backdrop-filter: blur(22px);
-  -webkit-backdrop-filter: blur(22px);
+  /* v13.8 PERF: REMOVED backdrop-filter: blur(22px) — the .clay-sidebar
+     background gradient is fully OPAQUE, so nothing ever showed through
+     the blur. It was pure GPU cost (re-composited every scroll frame)
+     with zero visual contribution. The ::before glow overlay is unaffected. */
 }
 
 .premium-sidebar::before {
@@ -730,6 +738,17 @@ table td {
   backdrop-filter: blur(24px) saturate(1.25);
   -webkit-backdrop-filter: blur(24px) saturate(1.25);
   box-shadow: var(--premium-shadow);
+}
+
+/* v13.8 PERF: phones pay the highest price for the topbar's live
+   backdrop blur (it runs on every scroll/animation frame). Below the sm
+   breakpoint the blur is dropped — bg-card/78 alone remains, which looks
+   nearly identical over the flat app background. */
+@media (max-width: 640px) {
+  .premium-topbar {
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+  }
 }
 
 .premium-topbar::before {

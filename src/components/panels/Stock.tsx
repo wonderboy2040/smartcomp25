@@ -18,6 +18,7 @@ import {
 } from '@/components/ui/table'
 import { useToast } from '@/hooks/use-toast'
 import { useIsDesktop } from '@/hooks/use-media-query'
+import { useDebouncedValue } from '@/hooks/use-debounced-value'
 import { formatCurrency, sumBy } from '@/lib/calc'
 import { Plus, Search, Pencil, Trash2, Package, AlertTriangle, Download, Tag, Folder, IndianRupee, TrendingUp, Boxes, Percent, FileText, Hash, KeyRound, ScanLine, Building2 } from 'lucide-react'
 import { toCSV, downloadCSV } from '@/lib/utils'
@@ -46,6 +47,8 @@ export const PRESET_CATEGORIES = [
 
 export function StockPanel() {
   const [search, setSearch] = useState('')
+  // v13.8 PERF: debounce the search term (see Invoices panel).
+  const debouncedSearch = useDebouncedValue(search, 250)
   const [categoryFilter, setCategoryFilter] = useState('all')
   const [showLowOnly, setShowLowOnly] = useState(false)
   const [dialogOpen, setDialogOpen] = useState(false)
@@ -77,8 +80,8 @@ export function StockPanel() {
     return (items || []).filter((i) => {
       if (categoryFilter !== 'all' && (i.category || 'General') !== categoryFilter) return false
       if (showLowOnly && Number(i.quantity) > Number(i.minQuantity)) return false
-      if (search) {
-        const q = search.toLowerCase()
+      if (debouncedSearch) {
+        const q = debouncedSearch.toLowerCase()
         return (
           String(i.name || '').toLowerCase().includes(q) ||
           String(i.sku || '').toLowerCase().includes(q) ||
@@ -89,7 +92,32 @@ export function StockPanel() {
       }
       return true
     })
-  }, [items, categoryFilter, showLowOnly, search])
+  }, [items, categoryFilter, showLowOnly, debouncedSearch])
+
+  // v13.8 PERF: memoized inventory summary — these four numbers were
+  // recomputed inline in JSX (five separate passes over the full items
+  // array) on EVERY render: every keystroke, checkbox toggle, and cache
+  // notification. One pass, one memo.
+  const inventoryStats = useMemo(() => {
+    const list = items || []
+    let costValue = 0
+    let sellValue = 0
+    let lowStock = 0
+    for (const i of list) {
+      const qty = Number(i.quantity) || 0
+      costValue += qty * (Number(i.costPrice) || 0)
+      sellValue += qty * (Number(i.sellingPrice) || 0)
+      if (qty <= (Number(i.minQuantity) || 0)) lowStock++
+    }
+    const profit = sellValue - costValue
+    return { count: list.length, costValue, sellValue, lowStock, profit, margin: sellValue > 0 ? (profit / sellValue) * 100 : 0 }
+  }, [items])
+
+  // v13.8 PERF: row render cap + debounced search (see Invoices panel).
+  const [rowCap, setRowCap] = useState(60)
+  useEffect(() => { setRowCap(60) }, [debouncedSearch, categoryFilter, showLowOnly])
+  const visibleRows = useMemo(() => filtered.slice(0, rowCap), [filtered, rowCap])
+  const hiddenCount = filtered.length - visibleRows.length
 
   const handleAdd = useCallback(() => {
     setEditing(null)
@@ -161,7 +189,7 @@ export function StockPanel() {
               <div className="w-8 h-8 rounded-lg bg-blue-100 flex items-center justify-center"><Boxes className="w-4 h-4 text-blue-600" /></div>
               <div className="min-w-0">
                 <p className="text-[10px] text-slate-500 uppercase font-medium truncate">Items</p>
-                <p className="text-sm sm:text-base font-bold text-slate-900 truncate">{(items || []).length}</p>
+                <p className="text-sm sm:text-base font-bold text-slate-900 truncate">{inventoryStats.count}</p>
               </div>
             </div>
             <p className="text-[10px] text-slate-400 mt-1">{filtered.length} shown</p>
@@ -173,7 +201,7 @@ export function StockPanel() {
               <div className="w-8 h-8 rounded-lg bg-slate-100 flex items-center justify-center"><IndianRupee className="w-4 h-4 text-slate-600" /></div>
               <div className="min-w-0">
                 <p className="text-[10px] text-slate-500 uppercase font-medium truncate">Cost Value</p>
-                <p className="text-sm sm:text-base font-bold text-slate-900 truncate">{formatCurrency(sumBy(items || [], (i) => (Number(i.quantity) || 0) * (Number(i.costPrice) || 0)))}</p>
+                <p className="text-sm sm:text-base font-bold text-slate-900 truncate">{formatCurrency(inventoryStats.costValue)}</p>
               </div>
             </div>
             <p className="text-[10px] text-slate-400 mt-1">Qty × Cost</p>
@@ -185,19 +213,19 @@ export function StockPanel() {
               <div className="w-8 h-8 rounded-lg bg-emerald-100 flex items-center justify-center"><TrendingUp className="w-4 h-4 text-emerald-600" /></div>
               <div className="min-w-0">
                 <p className="text-[10px] text-slate-500 uppercase font-medium truncate">Selling Value</p>
-                <p className="text-sm sm:text-base font-bold text-emerald-700 truncate">{formatCurrency(sumBy(items || [], (i) => (Number(i.quantity) || 0) * (Number(i.sellingPrice) || 0)))}</p>
+                <p className="text-sm sm:text-base font-bold text-emerald-700 truncate">{formatCurrency(inventoryStats.sellValue)}</p>
               </div>
             </div>
             <p className="text-[10px] text-slate-400 mt-1">Qty × Sell</p>
           </CardContent>
         </Card>
-        <Card className={`border-slate-200 bg-white ${(items || []).filter((i) => Number(i.quantity) <= Number(i.minQuantity)).length > 0 ? 'ring-2 ring-red-200' : ''}`}>
+        <Card className={`border-slate-200 bg-white ${inventoryStats.lowStock > 0 ? 'ring-2 ring-red-200' : ''}`}>
           <CardContent className="p-3">
             <div className="flex items-center gap-2">
               <div className="w-8 h-8 rounded-lg bg-red-100 flex items-center justify-center"><AlertTriangle className="w-4 h-4 text-red-600" /></div>
               <div className="min-w-0">
                 <p className="text-[10px] text-slate-500 uppercase font-medium truncate">Low Stock</p>
-                <p className="text-sm sm:text-base font-bold text-red-700 truncate">{(items || []).filter((i) => Number(i.quantity) <= Number(i.minQuantity)).length}</p>
+                <p className="text-sm sm:text-base font-bold text-red-700 truncate">{inventoryStats.lowStock}</p>
               </div>
             </div>
             <p className="text-[10px] text-red-500 mt-1">Reorder needed</p>
@@ -207,10 +235,8 @@ export function StockPanel() {
 
       {/* Potential profit banner */}
       {(() => {
-        const cost = sumBy(items || [], (i) => (Number(i.quantity) || 0) * (Number(i.costPrice) || 0))
-        const sell = sumBy(items || [], (i) => (Number(i.quantity) || 0) * (Number(i.sellingPrice) || 0))
-        const profit = sell - cost
-        const margin = sell > 0 ? (profit / sell) * 100 : 0
+        const profit = inventoryStats.profit
+        const margin = inventoryStats.margin
         return (
           <Card className="border-violet-200 bg-gradient-to-r from-violet-50 to-indigo-50">
             <CardContent className="p-3 flex items-center gap-3">
@@ -304,7 +330,7 @@ export function StockPanel() {
             No items found. Add your first item.
           </CardContent></Card>
         ) : (
-          filtered.map((item) => {
+          visibleRows.map((item) => {
             const lowStock = item.quantity <= item.minQuantity
             return (
               <Card key={item.id} className={`border-slate-200 ${lowStock ? 'border-red-200 bg-red-50/30' : ''}`}>
@@ -363,6 +389,11 @@ export function StockPanel() {
             )
           })
         )}
+        {hiddenCount > 0 && (
+          <button onClick={() => setRowCap((c) => c + 100)} className="w-full py-3 rounded-xl bg-white border-2 border-dashed border-slate-300 text-slate-600 text-sm font-semibold hover:bg-slate-50">
+            Show {hiddenCount} more item{hiddenCount > 1 ? 's' : ''}
+          </button>
+        )}
       </div>
 
       )}
@@ -398,7 +429,7 @@ export function StockPanel() {
                     </TableCell>
                   </TableRow>
                 ) : (
-                  filtered.map((item) => {
+                  visibleRows.map((item) => {
                     const lowStock = item.quantity <= item.minQuantity
                     return (
                       <TableRow key={item.id} className="hover:bg-slate-50">
@@ -473,6 +504,15 @@ export function StockPanel() {
                       </TableRow>
                     )
                   })
+                )}
+                {hiddenCount > 0 && (
+                  <TableRow>
+                    <TableCell colSpan={9} className="text-center py-3">
+                      <button onClick={() => setRowCap((c) => c + 100)} className="text-sm font-semibold text-indigo-600 hover:text-indigo-800">
+                        Show {hiddenCount} more item{hiddenCount > 1 ? 's' : ''}
+                      </button>
+                    </TableCell>
+                  </TableRow>
                 )}
               </TableBody>
             </Table>

@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useMemo, useCallback } from 'react'
+import { useState, useMemo, useCallback, useEffect } from 'react'
 import { useFetch, apiPost, apiDelete, invalidate } from '@/lib/api'
 import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -14,6 +14,7 @@ import {
 } from '@/components/ui/table'
 import { useToast } from '@/hooks/use-toast'
 import { useIsDesktop } from '@/hooks/use-media-query'
+import { useDebouncedValue } from '@/hooks/use-debounced-value'
 import { formatCurrency, sumBy } from '@/lib/calc'
 import { usePdfPreview } from '@/lib/preview-context'
 import { DocForm } from './DocForm'
@@ -26,6 +27,9 @@ export function QuotationsPanel() {
   // v13.7 PERF: render only the layout this viewport uses
   const isDesktop = useIsDesktop()
   const [search, setSearch] = useState('')
+  // v13.8 PERF: debounce the search term so the filter + table re-render
+  // runs once after typing stops, not on every keystroke.
+  const debouncedSearch = useDebouncedValue(search, 250)
   const [statusFilter, setStatusFilter] = useState('all')
   const [dialogOpen, setDialogOpen] = useState(false)
   const [editing, setEditing] = useState<any | null>(null)
@@ -39,8 +43,8 @@ export function QuotationsPanel() {
   const filtered = useMemo(() => {
     return (quotations || []).filter((q) => {
       if (statusFilter !== 'all' && q.status !== statusFilter) return false
-      if (search) {
-        const s = search.toLowerCase()
+      if (debouncedSearch) {
+        const s = debouncedSearch.toLowerCase()
         return (
           String(q?.number || '').toLowerCase().includes(s) ||
           String(q?.customer?.name || q?.customerName || '').toLowerCase().includes(s) ||
@@ -49,7 +53,13 @@ export function QuotationsPanel() {
       }
       return true
     })
-  }, [quotations, statusFilter, search])
+  }, [quotations, statusFilter, debouncedSearch])
+
+  // v13.8 PERF: row render cap — newest quotations first, older ones on demand.
+  const [rowCap, setRowCap] = useState(60)
+  useEffect(() => { setRowCap(60) }, [debouncedSearch, statusFilter])
+  const visibleRows = useMemo(() => filtered.slice(0, rowCap), [filtered, rowCap])
+  const hiddenCount = filtered.length - visibleRows.length
 
   // ===== Summary stats =====
   const summary = useMemo(() => {
@@ -292,7 +302,7 @@ export function QuotationsPanel() {
             No quotations found
           </CardContent></Card>
         ) : (
-          filtered.map((q) => {
+          visibleRows.map((q) => {
             const expired = new Date(q?.validTill || Date.now()) < new Date() && q.status === 'draft'
             return (
               <Card key={q.id} className="border-slate-200">
@@ -344,6 +354,11 @@ export function QuotationsPanel() {
             )
           })
         )}
+        {hiddenCount > 0 && (
+          <button onClick={() => setRowCap((c) => c + 100)} className="w-full py-3 rounded-xl bg-white border-2 border-dashed border-slate-300 text-slate-600 text-sm font-semibold hover:bg-slate-50">
+            Show {hiddenCount} more quotation{hiddenCount > 1 ? 's' : ''}
+          </button>
+        )}
       </div>
 
       )}
@@ -377,7 +392,7 @@ export function QuotationsPanel() {
                     </TableCell>
                   </TableRow>
                 ) : (
-                  filtered.map((q) => {
+                  visibleRows.map((q) => {
                     const expired = new Date(q?.validTill || Date.now()) < new Date() && q.status === 'draft'
                     return (
                       <TableRow key={q.id} className="hover:bg-slate-50">
@@ -461,6 +476,15 @@ export function QuotationsPanel() {
                       </TableRow>
                     )
                   })
+                )}
+                {hiddenCount > 0 && (
+                  <TableRow>
+                    <TableCell colSpan={9} className="text-center py-3">
+                      <button onClick={() => setRowCap((c) => c + 100)} className="text-sm font-semibold text-indigo-600 hover:text-indigo-800">
+                        Show {hiddenCount} more quotation{hiddenCount > 1 ? 's' : ''}
+                      </button>
+                    </TableCell>
+                  </TableRow>
                 )}
               </TableBody>
             </Table>

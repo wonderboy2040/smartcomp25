@@ -20,7 +20,10 @@ export async function GET(req: NextRequest) {
     if (invoiceId) payments = payments.filter((p) => p.invoiceId === invoiceId)
     if (type) payments = payments.filter((p) => p.type === type)
 
-    payments.sort((a, b) => new Date(b.date || b.createdAt).getTime() - new Date(a.date || a.createdAt).getTime())
+    // v13.8 FIX: missing dates produced NaN comparators (NaN - NaN = NaN,
+    // which sort() treats unpredictably) — fall back to 0 so undated rows
+    // sink to the bottom with a stable order instead of shuffling randomly.
+    payments.sort((a, b) => (new Date(b.date || b.createdAt).getTime() || 0) - (new Date(a.date || a.createdAt).getTime() || 0))
     payments = payments.slice(0, limit)
 
     const result = payments.map((p) => {

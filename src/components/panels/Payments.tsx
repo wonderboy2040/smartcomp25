@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useEffect } from 'react'
 import { useFetch, apiPost, apiDelete } from '@/lib/api'
 import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -15,6 +15,7 @@ import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from '@/components/ui/table'
 import { useToast } from '@/hooks/use-toast'
+import { useDebouncedValue } from '@/hooks/use-debounced-value'
 import { useIsDesktop } from '@/hooks/use-media-query'
 import { formatCurrency } from '@/lib/calc'
 import { Plus, Wallet, TrendingUp, Trash2, Search, AlertCircle, MessageCircle, CreditCard, Loader2 } from 'lucide-react'
@@ -25,6 +26,8 @@ export function PaymentsPanel() {
   const isDesktop = useIsDesktop()
   const [tab, setTab] = useState<'pending' | 'history'>('pending')
   const [search, setSearch] = useState('')
+  // v13.8 PERF: debounce the search term (see Invoices panel).
+  const debouncedSearch = useDebouncedValue(search, 250)
   const [dialogOpen, setDialogOpen] = useState(false)
   const [selectedInvoice, setSelectedInvoice] = useState<any | null>(null)
   const [saving, setSaving] = useState(false)
@@ -52,30 +55,39 @@ export function PaymentsPanel() {
 
   const filteredPending = useMemo(() => {
     return pendingInvoices.filter((i) => {
-      if (!search) return true
-      const q = search.toLowerCase()
+      if (!debouncedSearch) return true
+      const q = debouncedSearch.toLowerCase()
       return String(i?.number || '').toLowerCase().includes(q) || String(i?.customer?.name || i?.customerName || '').toLowerCase().includes(q)
     })
-  }, [pendingInvoices, search])
+  }, [pendingInvoices, debouncedSearch])
 
   const filteredPayments = useMemo(() => {
     return (payments || []).filter((p) => {
-      if (!search) return true
-      const q = search.toLowerCase()
+      if (!debouncedSearch) return true
+      const q = debouncedSearch.toLowerCase()
       return (
         String(p?.invoice?.number || p?.invoiceNumber || '').toLowerCase().includes(q) ||
         String(p?.invoice?.customer?.name || p?.customerName || '').toLowerCase().includes(q) ||
         String(p?.type || '').toLowerCase().includes(q)
       )
     })
-  }, [payments, search])
+  }, [payments, debouncedSearch])
+
+  // v13.8 PERF: row render cap + debounced search (see Invoices panel).
+  const [rowCap, setRowCap] = useState(60)
+  useEffect(() => { setRowCap(60) }, [debouncedSearch])
+  const visiblePayments = useMemo(() => filteredPayments.slice(0, rowCap), [filteredPayments, rowCap])
+  const hiddenPayments = filteredPayments.length - visiblePayments.length
 
   const totalDue = useMemo(() => pendingInvoices.reduce((s, i) => s + (Number(i.amountDue) || 0), 0), [pendingInvoices])
   
   const todayPayments = useMemo(() => {
     const todayStr = new Date().toDateString()
     return (payments || []).filter(
-      (p) => new Date(p?.date || Date.now()).toDateString() === todayStr
+      // v13.8 FIX: a payment with no date must NOT count as "today" —
+      // `new Date(undefined || Date.now())` silently substituted now(),
+      // inflating Today's Collections with every undated legacy row.
+      (p) => !!p?.date && new Date(p.date).toDateString() === todayStr
     )
   }, [payments])
 
@@ -284,7 +296,7 @@ export function PaymentsPanel() {
               No payment history
             </CardContent></Card>
           ) : (
-            filteredPayments.map((p) => (
+            visiblePayments.map((p) => (
               <Card key={p.id} className="border-slate-200">
                 <CardContent className="p-3">
                   <div className="flex items-start justify-between gap-2">
@@ -312,6 +324,11 @@ export function PaymentsPanel() {
                 </CardContent>
               </Card>
             ))
+          )}
+          {hiddenPayments > 0 && (
+            <button onClick={() => setRowCap((c) => c + 100)} className="w-full py-3 rounded-xl bg-white border-2 border-dashed border-slate-300 text-slate-600 text-sm font-semibold hover:bg-slate-50">
+              Show {hiddenPayments} more payment{hiddenPayments > 1 ? 's' : ''}
+            </button>
           )}
         </div>
       )}
@@ -418,13 +435,19 @@ export function PaymentsPanel() {
                       </TableCell>
                     </TableRow>
                   ) : (
-                    filteredPayments.map((p) => (
+                    visiblePayments.map((p) => (
                       <TableRow key={p.id} className="hover:bg-slate-50">
                         <TableCell className="text-sm">
-                          {new Date(p?.date || Date.now()).toLocaleDateString('en-IN')}
-                          <div className="text-[10px] text-slate-500">
-                            {new Date(p?.date || Date.now()).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}
-                          </div>
+                          {p?.date ? (
+                            <>
+                              {new Date(p.date).toLocaleDateString('en-IN')}
+                              <div className="text-[10px] text-slate-500">
+                                {new Date(p.date).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}
+                              </div>
+                            </>
+                          ) : (
+                            <span className="text-slate-400">-</span>
+                          )}
                         </TableCell>
                         <TableCell className="font-medium">{p.invoice.number}</TableCell>
                         <TableCell className="text-sm">{p?.invoice?.customer?.name || p?.customerName || ''}</TableCell>
@@ -452,6 +475,15 @@ export function PaymentsPanel() {
                         </TableCell>
                       </TableRow>
                     ))
+                  )}
+                  {hiddenPayments > 0 && (
+                    <TableRow>
+                      <TableCell colSpan={7} className="text-center py-3">
+                        <button onClick={() => setRowCap((c) => c + 100)} className="text-sm font-semibold text-indigo-600 hover:text-indigo-800">
+                          Show {hiddenPayments} more payment{hiddenPayments > 1 ? 's' : ''}
+                        </button>
+                      </TableCell>
+                    </TableRow>
                   )}
                 </TableBody>
               </Table>
