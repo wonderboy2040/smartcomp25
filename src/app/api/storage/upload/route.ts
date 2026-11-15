@@ -9,17 +9,16 @@ async function getBucket() {
   const db = await getDb()
   if (!db) throw new Error('Firebase not configured')
   const admin = await import('firebase-admin')
-  const storage = admin.storage()
+  const storage = (admin as any).storage()
 
-  // Reuse the same named app that firebase.ts initializes, or fall back
-  // to the default app. This avoids "already exists" errors on warm restarts.
   const appName = 'smartcomp'
   let app: any
   try {
-    const existing = (admin.apps || []).find((a: any) => a.name === appName)
-    app = existing || admin.initializeApp({ credential: admin.cert((await getDb()) ? undefined : undefined) }, appName)
+    const apps = (admin as any).apps || []
+    const existing = apps.find((a: any) => a && a.name === appName)
+    app = existing || (admin as any).initializeApp({}, appName)
   } catch {
-    app = admin.app()
+    app = (admin as any).app()
   }
 
   try {
