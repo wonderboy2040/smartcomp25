@@ -561,6 +561,16 @@ function CustomerDialog({
               className="mt-1"
             />
           </div>
+          <div>
+            <Label>Date of Birth</Label>
+            <Input
+              type="date"
+              value={form.birthday || form.dob || ''}
+              onChange={(e) => setForm({ ...form, birthday: e.target.value, dob: e.target.value })}
+              className="mt-1"
+            />
+            <p className="text-[10px] text-slate-500 mt-1">Auto birthday wishes + 10% OFF coupon via WhatsApp</p>
+          </div>
           <div className="sm:col-span-2">
             <Label>Address</Label>
             <Input

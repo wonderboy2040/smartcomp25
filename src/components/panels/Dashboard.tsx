@@ -29,6 +29,7 @@ export function DashboardView({ onNavigate, sheetsConnected = true }: { onNaviga
   const lowMarginProducts = data?.lowMarginProducts || []
 
   const profitMargin = stats.monthSales ? ((stats.monthProfit / stats.monthSales) * 100).toFixed(1) : '0'
+  const monthComparison = data?.monthComparison || []
 
   return (
     <div className="space-y-4 sm:space-y-6">
@@ -379,6 +380,41 @@ export function DashboardView({ onNavigate, sheetsConnected = true }: { onNaviga
                   name="Profit"
                 />
               </LineChart>
+            </ResponsiveContainer>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Month Comparison Bar Chart */}
+      {monthComparison.length > 0 && (
+        <Card className="border-slate-200 shadow-sm">
+          <CardHeader className="pb-3">
+            <CardTitle className="text-base flex items-center gap-2">
+              <div className="w-7 h-7 bg-emerald-100 rounded-lg flex items-center justify-center">
+                <BarChart3 className="w-3.5 h-3.5 text-emerald-600" />
+              </div>
+              Month Comparison — Last 3 Months
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="pt-0">
+            <ResponsiveContainer width="100%" height={250}>
+              <BarChart data={monthComparison}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
+                <XAxis dataKey="label" stroke="#64748b" fontSize={12} />
+                <YAxis stroke="#64748b" fontSize={12} />
+                <Tooltip
+                  contentStyle={{
+                    backgroundColor: '#fff',
+                    border: '1px solid #e2e8f0',
+                    borderRadius: '8px',
+                    fontSize: '12px',
+                  }}
+                  formatter={(value: any) => `Rs.${Number(value).toLocaleString('en-IN')}`}
+                />
+                <Legend fontSize={12} />
+                <Bar dataKey="sales" fill="#10b981" radius={[4, 4, 0, 0]} name="Sales" />
+                <Bar dataKey="profit" fill="#6366f1" radius={[4, 4, 0, 0]} name="Profit" />
+              </BarChart>
             </ResponsiveContainer>
           </CardContent>
         </Card>

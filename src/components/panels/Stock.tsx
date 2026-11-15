@@ -20,7 +20,7 @@ import { useToast } from '@/hooks/use-toast'
 import { useIsDesktop } from '@/hooks/use-media-query'
 import { useDebouncedValue } from '@/hooks/use-debounced-value'
 import { formatCurrency, sumBy } from '@/lib/calc'
-import { Plus, Search, Pencil, Trash2, Package, AlertTriangle, Download, Tag, Folder, IndianRupee, TrendingUp, Boxes, Percent, FileText, Hash, KeyRound, ScanLine, Building2 } from 'lucide-react'
+import { Plus, Search, Pencil, Trash2, Package, AlertTriangle, Download, Tag, Folder, IndianRupee, TrendingUp, Boxes, Percent, FileText, Hash, KeyRound, ScanLine, Building2, Bell, ShoppingCart, RefreshCw } from 'lucide-react'
 import { toCSV, downloadCSV } from '@/lib/utils'
 import { BarcodeScanner } from '@/components/BarcodeScanner'
 
@@ -60,6 +60,8 @@ export function StockPanel() {
 
   const { data: items, loading, refetch } = useFetch<any[]>('/api/items', undefined)
   const { data: suppliers } = useFetch<any[]>('/api/suppliers?active=true', undefined)
+  const { data: reorderData, refetch: refetchReorder } = useFetch<any>('/api/reorder-alerts', undefined)
+  const reorderSuggestions = reorderData?.suggestions || []
 
   // Merge items' actual categories with preset categories
   const categories = useMemo(() => {
@@ -251,6 +253,49 @@ export function StockPanel() {
           </Card>
         )
       })()}
+
+      {/* Reorder Alerts */}
+      {reorderSuggestions.length > 0 && (
+        <Card className="border-red-200 bg-red-50/60">
+          <CardContent className="p-3 sm:p-4">
+            <div className="flex items-center justify-between mb-3">
+              <div className="flex items-center gap-2">
+                <div className="w-8 h-8 rounded-lg bg-red-100 flex items-center justify-center"><AlertTriangle className="w-4 h-4 text-red-600" /></div>
+                <div>
+                  <p className="text-xs font-bold text-red-900 uppercase">Reorder Suggestions</p>
+                  <p className="text-[10px] text-red-700">{reorderSuggestions.length} item(s) need restock</p>
+                </div>
+              </div>
+              <Button variant="outline" size="sm" onClick={() => refetchReorder()} className="border-red-300 text-red-700 h-8">
+                <Bell className="w-3.5 h-3.5 mr-1" /> Refresh
+              </Button>
+            </div>
+            <div className="space-y-2 max-h-64 overflow-y-auto">
+              {reorderSuggestions.map((s: any) => (
+                <div key={s.itemId} className="flex items-center justify-between p-2.5 rounded-lg bg-white border border-red-100">
+                  <div className="min-w-0 flex-1">
+                    <p className="text-xs font-bold text-slate-900 truncate">{s.itemName}</p>
+                    <p className="text-[10px] text-slate-500">Stock: {s.currentQuantity} / Min: {s.minQuantity} • Reorder: {s.suggestedOrderQuantity} units • Est: {formatCurrency(s.estimatedCost)}</p>
+                    {s.preferredSupplierName && <p className="text-[10px] text-slate-500">Supplier: {s.preferredSupplierName}</p>}
+                  </div>
+                  <div className="flex items-center gap-1 flex-shrink-0 ml-2">
+                    <Badge variant="outline" className={`text-[10px] ${s.priority === 'urgent' ? 'bg-red-50 text-red-700 border-red-200' : s.priority === 'high' ? 'bg-orange-50 text-orange-700 border-orange-200' : 'bg-amber-50 text-amber-700 border-amber-200'}`}>{s.priority}</Badge>
+                    <Button variant="outline" size="sm" className="h-7 text-[10px] border-blue-200 text-blue-700" onClick={async () => {
+                      try {
+                        await apiPost('/api/reorder-alerts', { itemIds: [s.itemId] })
+                        toast({ title: 'Purchase order created', description: s.itemName })
+                        refetchReorder()
+                      } catch (e: any) {
+                        toast({ title: 'Error', description: e.message, variant: 'destructive' })
+                      }
+                    }}><ShoppingCart className="w-3 h-3 mr-0.5" /> Order</Button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       <Card className="border-slate-200 dark:border-slate-800">
         <CardContent className="p-3 space-y-3">

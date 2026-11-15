@@ -22,7 +22,8 @@ import { useDebouncedValue } from '@/hooks/use-debounced-value'
 import { formatCurrency } from '@/lib/calc'
 import { usePdfPreview } from '@/lib/preview-context'
 import { ServiceWhatsAppModal } from '@/components/ServiceWhatsAppModal'
-import { Wrench, Plus, Search, Laptop, Printer, Monitor, Battery, ScanLine, Smartphone, ClipboardList, CheckCircle2, Clock, Package, IndianRupee, Trash2, RefreshCw, Send, Eye, ExternalLink, Copy, FileText, MessageSquare, ShoppingCart, AlertTriangle, Boxes, Undo2 } from 'lucide-react'
+import { uploadJobPhoto, deleteJobPhoto, getSignedDownloadUrl, compressImage } from '@/lib/firebase-storage'
+import { Wrench, Plus, Search, Laptop, Printer, Monitor, Battery, ScanLine, Smartphone, ClipboardList, CheckCircle2, Clock, Package, IndianRupee, Trash2, RefreshCw, Send, Eye, ExternalLink, Copy, FileText, MessageSquare, ShoppingCart, AlertTriangle, Boxes, Undo2, Image, X } from 'lucide-react'
 
 const DEVICE_ICONS: Record<string, any> = {
   Laptop: Laptop,
@@ -439,6 +440,76 @@ function JobDetailDialog({ job, onClose, onUpdated, onOpenInvoice, onOpenWhatsAp
   const [deductStock, setDeductStock] = useState(true)
   const [showReturnDialog, setShowReturnDialog] = useState(false)
   const [returnReason, setReturnReason] = useState('')
+  const [jobPhotos, setJobPhotos] = useState<any[]>(() => safeJsonParse<any[]>(job?.photosJson, []))
+  const [uploadingPhotos, setUploadingPhotos] = useState(false)
+
+  const refreshPhotos = useCallback(async () => {
+    try {
+      const res = await fetch(`/api/job-photos?jobId=${encodeURIComponent(job.id)}`)
+      const data = await res.json().catch(() => ({ photos: [] }))
+      if (res.ok) setJobPhotos(data.photos || [])
+    } catch {
+      // ignore
+    }
+  }, [job.id])
+
+  useEffect(() => {
+    setJobPhotos(safeJsonParse<any[]>(job?.photosJson, []))
+  }, [job.id, job.photosJson])
+
+  const handlePhotoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files
+    if (!files || files.length === 0) return
+    setUploadingPhotos(true)
+    try {
+      const uploaded: any[] = []
+      for (const file of Array.from(files)) {
+        const compressed = await compressImage(file)
+        const blob = await (await fetch(compressed)).blob()
+        const fileObj = new File([blob], file.name, { type: 'image/jpeg' })
+        const result = await uploadJobPhoto(fileObj, job.id, 'other')
+        uploaded.push({
+          id: result.path,
+          url: result.downloadURL,
+          type: 'other',
+          caption: '',
+          uploadedAt: new Date().toISOString(),
+        })
+      }
+      const updated = [...jobPhotos, ...uploaded]
+      setJobPhotos(updated)
+      await fetch('/api/job-photos', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ jobId: job.id, photos: updated }),
+      })
+      toast({ title: `${uploaded.length} photo(s) uploaded` })
+    } catch (err: any) {
+      toast({ title: 'Upload failed', description: err?.message, variant: 'destructive' })
+    } finally {
+      setUploadingPhotos(false)
+      e.target.value = ''
+    }
+  }
+
+  const handleDeletePhoto = async (photo: any) => {
+    try {
+      if (photo.url?.startsWith('http')) {
+        const pathMatch = photo.url.match(/jobs\/([^/]+)\/([^?]+)/)
+        if (pathMatch) await deleteJobPhoto(`jobs/${pathMatch[1]}/${pathMatch[2]}`)
+      }
+      const updated = jobPhotos.filter((p) => p.id !== photo.id)
+      setJobPhotos(updated)
+      await fetch('/api/job-photos', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ jobId: job.id, photos: updated }),
+      })
+      toast({ title: 'Photo removed' })
+    } catch (err: any) {
+      toast({ title: 'Delete failed', description: err?.message, variant: 'destructive' })
+    }
+  }
 
   // Full catalogue, fetched once from the same URL every other panel uses so
   // it comes straight from cache. Filtering is local and shows EVERY match —

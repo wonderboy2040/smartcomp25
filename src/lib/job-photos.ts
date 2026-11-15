@@ -1,7 +1,8 @@
 /**
  * Job Photo Upload Utility
  * Handles photo attachments for service jobs
- * Uses base64 encoding for simplicity (Firebase Storage can be added later)
+ * Actual uploads go through the server-side Firebase Storage route at
+ * `/api/storage/upload` via `src/lib/firebase-storage.ts`.
  */
 
 export interface JobPhoto {

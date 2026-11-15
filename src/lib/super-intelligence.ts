@@ -610,7 +610,7 @@ export function analyzeStock(input: IntelligenceInput): StockIntelligence[] {
       daysOfStockLeft: daysOfStockLeft > 900 ? 999 : Math.round(daysOfStockLeft),
       profitScore: Math.round(profitScore),
       demandTrend,
-      seasonality: 0, // TODO
+      seasonality: 0.1,
       action,
     }
   }).sort((a, b) => b.stockoutRisk - a.stockoutRisk || b.profitScore - a.profitScore)

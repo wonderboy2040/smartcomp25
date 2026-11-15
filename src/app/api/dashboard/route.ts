@@ -142,11 +142,35 @@ export async function GET(req: NextRequest) {
       .sort((a, b) => a.profitMargin - b.profitMargin)
       .slice(0, 10)
 
+    // === MONTH COMPARISON: Last 3 months ===
+    const monthComparison: Array<{ label: string; month: string; sales: number; profit: number; invoices: number }> = []
+    for (let i = 2; i >= 0; i--) {
+      const d = new Date(now.getFullYear(), now.getMonth() - i, 1)
+      const y = d.getFullYear()
+      const m = d.getMonth()
+      const label = d.toLocaleDateString('en-IN', { month: 'short', year: 'numeric' })
+      const monthStr = `${y}-${String(m + 1).padStart(2, '0')}`
+      const monthInvoices = invoices.filter((inv: any) => {
+        const id = String(inv.date || inv.createdAt || '')
+        return id.startsWith(monthStr)
+      })
+      const sales = monthInvoices.reduce((sum, inv) => sum + (Number(inv.grandTotal) || 0), 0)
+      const profit = monthInvoices.reduce((sum, inv) => sum + (Number(inv.profit) || 0), 0)
+      monthComparison.push({
+        label,
+        month: monthStr,
+        sales: Math.round(sales),
+        profit: Math.round(profit),
+        invoices: monthInvoices.length,
+      })
+    }
+
     return NextResponse.json({
       ...data,
       salesTrend,
       topCustomers,
       lowMarginProducts,
+      monthComparison,
     }, {
       headers: {
         'X-RateLimit-Remaining': check.remaining.toString(),
