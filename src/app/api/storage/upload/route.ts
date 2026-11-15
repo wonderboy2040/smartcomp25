@@ -8,20 +8,27 @@ export const maxDuration = 60
 async function getBucket() {
   const db = await getDb()
   if (!db) throw new Error('Firebase not configured')
+  // @ts-ignore - dynamic import of firebase-admin
   const admin = await import('firebase-admin')
+  // @ts-ignore - storage typing varies across firebase-admin versions
   const storage = (admin as any).storage()
 
   const appName = 'smartcomp'
   let app: any
   try {
+    // @ts-ignore - apps is untyped on admin namespace
     const apps = (admin as any).apps || []
-    const existing = apps.find((a: any) => a && a.name === appName)
+    const existing = Array.isArray(apps)
+      ? apps.find((a: any) => a && a.name === appName)
+      : null
     app = existing || (admin as any).initializeApp({}, appName)
   } catch {
+    // @ts-ignore - app() is untyped
     app = (admin as any).app()
   }
 
   try {
+    // @ts-ignore - bucket accepts app in some versions
     return storage.bucket({ app })
   } catch {
     return storage.bucket()
