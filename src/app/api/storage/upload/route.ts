@@ -8,14 +8,22 @@ export const maxDuration = 60
 async function getBucket() {
   const db = await getDb()
   if (!db) throw new Error('Firebase not configured')
-  // firebase-admin does not export Storage by default in all versions;
-  // import lazily to keep cold start fast.
   const admin = await import('firebase-admin')
   const storage = admin.storage()
+
+  // Reuse the same named app that firebase.ts initializes, or fall back
+  // to the default app. This avoids "already exists" errors on warm restarts.
   const appName = 'smartcomp'
+  let app: any
   try {
-    const existing = admin.app().getApp(appName)
-    return storage.bucket({ app: existing })
+    const existing = (admin.apps || []).find((a: any) => a.name === appName)
+    app = existing || admin.initializeApp({ credential: admin.cert((await getDb()) ? undefined : undefined) }, appName)
+  } catch {
+    app = admin.app()
+  }
+
+  try {
+    return storage.bucket({ app })
   } catch {
     return storage.bucket()
   }
