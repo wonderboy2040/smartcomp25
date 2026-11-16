@@ -206,7 +206,7 @@ escapes between the PEM lines. Render preserves these as-is.
                        ┌──────────────────────────────────────┐
    Browser / PWA  ──►  │  Next.js (Render)                    │
                        │  ├─ /api/* routes (60+)              │
-                       │  ├─ PIN gate (proxy.ts)              │
+                       │  ├─ PIN gate (middleware.ts)              │
                        │  ├─ Write-through cache (60s + 5s)   │
                        │  ├─ Anti-clobber pending creates     │
                        │  ├─ Stale-cache fallback             │

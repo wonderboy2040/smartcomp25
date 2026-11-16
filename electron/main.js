@@ -120,6 +120,65 @@ function getNodeExe() {
 }
 
 let nextProcess = null
+let lastConfigPin = ''
+let configWatcher = null
+let configWatchTimer = null
+let restartInProgress = false
+
+function getConfiguredPin() {
+  const runtimeConfig = readConfig()
+  return typeof runtimeConfig.appPin === 'string' ? runtimeConfig.appPin.trim() : ''
+}
+
+/**
+ * The Edge middleware cannot read config.json, so Electron passes the PIN as
+ * APP_PIN when spawning the server. Watch the config file so a PIN change made
+ * in Settings/Setup takes effect immediately (the server is restarted with the
+ * new env value) instead of silently waiting for the next app launch.
+ */
+function watchConfigForPinChanges() {
+  if (configWatcher) return
+  try {
+    const configDir = getConfigDir()
+    if (!fs.existsSync(configDir)) fs.mkdirSync(configDir, { recursive: true })
+    configWatcher = fs.watch(configDir, (_event, filename) => {
+      if (filename && String(filename) !== 'config.json') return
+      if (configWatchTimer) clearTimeout(configWatchTimer)
+      configWatchTimer = setTimeout(async () => {
+        configWatchTimer = null
+        const pin = getConfiguredPin()
+        if (pin === lastConfigPin || restartInProgress) return
+        logLine(`PIN changed via config.json — restarting local server to apply it`)
+        lastConfigPin = pin
+        restartInProgress = true
+        try {
+          killNextServer()
+          const port = await startNextServer()
+          if (mainWindow) mainWindow.loadURL(`http://127.0.0.1:${port}/`)
+        } catch (e) {
+          logLine(`PIN-change restart failed: ${e.message}`)
+          showErrorWindow(e.message)
+        } finally {
+          restartInProgress = false
+        }
+      }, 500)
+    })
+    configWatcher.on('error', (e) => logLine(`config watcher error: ${e.message}`))
+  } catch (e) {
+    logLine(`Could not watch config file: ${e.message}`)
+  }
+}
+
+function stopConfigWatcher() {
+  if (configWatchTimer) {
+    clearTimeout(configWatchTimer)
+    configWatchTimer = null
+  }
+  if (configWatcher) {
+    try { configWatcher.close() } catch {}
+    configWatcher = null
+  }
+}
 
 function startNextServer() {
   return new Promise((resolve, reject) => {
@@ -138,6 +197,12 @@ function startNextServer() {
     // Use FIXED_PORT — easier to debug, no race between stdout parse + connect
     const port = FIXED_PORT
 
+    // The Edge middleware cannot read the config file (no `fs` there), so
+    // pass the configured PIN through the environment as well. Cloud
+    // deployments already set APP_PIN directly.
+    lastConfigPin = getConfiguredPin()
+    const appPin = lastConfigPin
+
     // On Windows, we MUST use ELECTRON_RUN_AS_NODE=1 to make the Electron
     // binary behave as plain Node.js (otherwise it tries to launch GUI).
     const env = {
@@ -147,6 +212,7 @@ function startNextServer() {
       HOSTNAME: '127.0.0.1',
       NEXT_TELEMETRY_DISABLED: '1',
       SMARTCOMP_CONFIG_PATH: getConfigPath(),
+      ...(appPin ? { APP_PIN: appPin } : {}),
       // Make Electron's binary behave as Node.js
       ELECTRON_RUN_AS_NODE: '1',
     }
@@ -416,7 +482,7 @@ function showErrorWindow(errorMessage) {
   <script>
     // SECURITY: previously this used require('electron') inside the renderer,
     // which is broken under contextIsolation:true + sandbox:true. The preload
-    // script now exposes a safe 'smartcomp' global with an `openLog()` method
+    // script now exposes a safe 'smartcomp' global with an openLog() method
     // instead — no Node primitives reachable from the error page.
     function retry() {
       location.reload();
@@ -467,6 +533,7 @@ if (!gotLock) {
     try {
       const port = await startNextServer()
       createWindow(port)
+      watchConfigForPinChanges()
     } catch (e) {
       logLine(`STARTUP FAILED: ${e.message}`)
       logLine(e.stack || '')
@@ -475,11 +542,13 @@ if (!gotLock) {
   })
 
   app.on('window-all-closed', () => {
+    stopConfigWatcher()
     killNextServer()
     app.quit()
   })
 
   app.on('before-quit', () => {
+    stopConfigWatcher()
     killNextServer()
   })
 

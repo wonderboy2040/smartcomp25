@@ -13,8 +13,10 @@ import type { NextConfig } from "next";
  */
 
 const nextConfig: NextConfig = {
-  // Standalone output so Electron can ship the server bundle without node_modules
-  output: 'standalone',
+  // Standalone output so Electron can ship the server bundle without node_modules.
+  // Vercel builds its own serverless output and ignores standalone; disabling it
+  // there avoids copying a ~100 MB bundle the platform never uses.
+  output: process.env.VERCEL ? undefined : 'standalone',
   // Type-check on build — was previously ignored, which let real type errors
   // ship to production silently. If type errors block a deploy, fix them
   // rather than disabling this flag again.

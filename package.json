@@ -85,9 +85,6 @@
   "engines": {
     "node": "24.x"
   },
-  "allowScripts": {
-    "electron@33.4.11": true
-  },
   "overrides": {
     "postcss": "8.5.22",
     "sharp": "0.35.3"

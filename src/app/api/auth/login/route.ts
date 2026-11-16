@@ -3,7 +3,7 @@ import { getAppPin } from '@/lib/runtime-config'
 import { authLimiter, getClientIp } from '@/lib/rate-limit'
 
 const AUTH_COOKIE = 'smartcomp_auth'
-const SALT = '_smartcomp_v3_2026' // v3.0 unified salt - MUST match proxy.ts
+const SALT = '_smartcomp_v3_2026' // v3.0 unified salt - MUST match middleware.ts
 const MAX_AGE = 60 * 60 * 24 * 30 // 30 days
 
 async function sha256(text: string): Promise<string> {

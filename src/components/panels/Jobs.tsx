@@ -494,10 +494,20 @@ function JobDetailDialog({ job, onClose, onUpdated, onOpenInvoice, onOpenWhatsAp
 
   const handleDeletePhoto = async (photo: any) => {
     try {
-      if (photo.url?.startsWith('http')) {
-        const pathMatch = photo.url.match(/jobs\/([^/]+)\/([^?]+)/)
-        if (pathMatch) await deleteJobPhoto(`jobs/${pathMatch[1]}/${pathMatch[2]}`)
+      // `photo.id` is the Storage object path returned by the upload route.
+      // Download URLs percent-encode the slashes (`jobs%2F...`), so extracting
+      // the path from the URL never matched before — use the stored id first.
+      let path = typeof photo.id === 'string' && photo.id.startsWith('jobs/') ? photo.id : ''
+      if (!path && photo.url?.startsWith('http')) {
+        try {
+          const decoded = decodeURIComponent(new URL(photo.url).pathname)
+          const match = decoded.match(/\/o\/(jobs\/.+)$/)
+          if (match) path = match[1]
+        } catch {
+          // ignore malformed URLs
+        }
       }
+      if (path) await deleteJobPhoto(path)
       const updated = jobPhotos.filter((p) => p.id !== photo.id)
       setJobPhotos(updated)
       await fetch('/api/job-photos', {

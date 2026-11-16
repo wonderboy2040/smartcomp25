@@ -12,7 +12,7 @@ import {
   ShoppingBag, Wrench,
   ShieldCheck,
   Plus, FileCheck2, PackagePlus, Bell,
-  TrendingDown, Award, Percent,
+  TrendingDown, Award, Percent, BarChart3,
 } from 'lucide-react'
 import { LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from 'recharts'
 

@@ -25,7 +25,6 @@ Full codebase audit completed for SmartComp v12.0 Firebase-only Edition. **Overa
 
 **Files Reviewed:**
 - `src/middleware.ts`
-- `src/proxy.ts`
 - `src/app/api/auth/login/route.ts`
 - `src/app/api/auth/status/route.ts`
 - `src/app/login/page.tsx`

@@ -29,7 +29,8 @@ export async function GET() {
         date: po.date || po.createdAt || '',
         itemsJson: po.itemsJson || '[]',
         itemCount: items.length,
-        grandTotal: items.reduce((s, l) => s + (Number(l.quantity) || 0) * (Number(l.costPrice) || 0), 0),
+        // `rate` fallback keeps older auto-generated POs totalling correctly.
+        grandTotal: items.reduce((s, l) => s + (Number(l.quantity) || 0) * (Number(l.costPrice ?? l.rate) || 0), 0),
         status: String(po.status || 'draft'),
         payableAmount: Number(po.payableAmount) || 0,
         amountDue: po.amountDue !== undefined ? Number(po.amountDue) : Number(po.payableAmount) || 0,

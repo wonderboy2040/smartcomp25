@@ -1,1 +1,149 @@
-export { proxy as middleware, config } from './proxy'
+import { NextRequest, NextResponse } from 'next/server'
+
+/**
+ * PIN-based access protection.
+ *
+ * IMPORTANT: middleware runs in the Edge runtime on Vercel. It must NOT
+ * import Node-only modules (`fs`, `path`, etc.). The desktop config file
+ * (`SMARTCOMP_CONFIG_PATH`) is therefore read by the Node API routes only;
+ * Electron passes the PIN to this middleware through the APP_PIN env var
+ * when it spawns the standalone server. Cloud deployments set APP_PIN as a
+ * normal environment variable.
+ *
+ * Both v3 and v1 salts are accepted so existing sessions keep working after
+ * an upgrade.
+ */
+
+const AUTH_COOKIE = 'smartcomp_auth'
+const SALT_V3 = '_smartcomp_v3_2026'
+const SALT_V1 = '_smartcomp_v1' // legacy support
+
+let cachedPin: string | undefined
+let cachedTokens: { v3: string | null; v1: string | null } | null = null
+
+function getMiddlewarePin(): string | undefined {
+  const pin = process.env.APP_PIN?.trim()
+  return pin || undefined
+}
+
+async function expectedTokens(): Promise<{ v3: string | null; v1: string | null }> {
+  const pin = getMiddlewarePin()
+  if (!pin) return { v3: null, v1: null }
+
+  if (pin === cachedPin && cachedTokens) return cachedTokens
+
+  cachedPin = pin
+  const enc = new TextEncoder()
+
+  // Generate both tokens for backward compatibility
+  const dataV3 = enc.encode(pin + SALT_V3)
+  const digestV3 = await crypto.subtle.digest('SHA-256', dataV3)
+  const tokenV3 = Array.from(new Uint8Array(digestV3))
+    .map((b) => b.toString(16).padStart(2, '0'))
+    .join('')
+
+  const dataV1 = enc.encode(pin + SALT_V1)
+  const digestV1 = await crypto.subtle.digest('SHA-256', dataV1)
+  const tokenV1 = Array.from(new Uint8Array(digestV1))
+    .map((b) => b.toString(16).padStart(2, '0'))
+    .join('')
+
+  cachedTokens = { v3: tokenV3, v1: tokenV1 }
+  return cachedTokens
+}
+
+function safeEqual(a: string, b: string): boolean {
+  if (a.length !== b.length) return false
+  let diff = 0
+  for (let i = 0; i < a.length; i++) diff |= a.charCodeAt(i) ^ b.charCodeAt(i)
+  return diff === 0
+}
+
+const PUBLIC_PATHS = [
+  '/login',
+  '/api/auth/login',
+  '/api/auth/logout',
+  '/api/auth/status',
+  '/api/config',          // Public: only exposes `configured: boolean`, `pinRequired: boolean`, URL preview — no secrets. Needed so the homepage can decide between SetupWizard vs Login vs App.
+  '/api/whatsapp/webhook',
+  '/api/cron/auto-enquiry',
+  '/api/cron/amc',
+  '/api/cron/backup',
+  '/api/log-error',
+  '/track',
+  '/api/track',
+  '/api/razorpay/webhook',
+  '/api/health',
+  '/api/poster/debug',  // Public diagnostic — tests ZAI API connectivity from the server (no auth needed)
+  '/portal',             // Customer self-service portal — public (phone-gated, no PIN)
+  '/api/portal',         // Portal data endpoint — public (phone-gated)
+  '/api/portal/pay',     // Portal payment endpoint — public (phone-gated + Razorpay)
+  // SECURITY: /api/export removed from PUBLIC_PATHS — it dumps all 16 sheets
+  // (Customers PII, PersonalExpenditure, Settings with PINs, etc.) in JSON/CSV.
+  // Now requires the auth cookie like every other /api/* route.
+]
+
+function isPublic(pathname: string): boolean {
+  if (PUBLIC_PATHS.includes(pathname)) return true
+  if (PUBLIC_PATHS.some(p => pathname.startsWith(p + '/'))) return true
+  if (pathname.startsWith('/track')) return true
+  if (pathname.startsWith('/portal')) return true
+  if (pathname.startsWith('/_next/')) return true
+  if (pathname.startsWith('/favicon')) return true
+  if (pathname.startsWith('/icon-')) return true
+  if (pathname.startsWith('/apple-')) return true
+  if (pathname.startsWith('/android-')) return true
+  if (pathname.startsWith('/safari-')) return true
+  if (pathname === '/manifest.json' || pathname === '/manifest.webmanifest') return true
+  if (pathname === '/sw.js' || pathname === '/sw-register.js' || pathname === '/offline.html') return true
+  if (pathname === '/robots.txt' || pathname === '/logo.svg' || pathname === '/icon.svg') return true
+  if (pathname === '/clear-cache.html') return true
+  if (pathname.match(/\.(png|jpg|jpeg|svg|ico|webp|avif|woff|woff2|ttf|eot)$/)) return true
+  return false
+}
+
+export async function middleware(req: NextRequest) {
+  const tokens = await expectedTokens()
+
+  // No PIN configured -> open access
+  if (!tokens.v3) return NextResponse.next()
+
+  const { pathname } = req.nextUrl
+
+  if (isPublic(pathname)) return NextResponse.next()
+
+  const token = req.cookies.get(AUTH_COOKIE)?.value
+  if (token) {
+    // Accept either v3 or v1 token for backward compatibility
+    if (safeEqual(token, tokens.v3!) || (tokens.v1 && safeEqual(token, tokens.v1))) {
+      return NextResponse.next()
+    }
+  }
+
+  const accept = req.headers.get('accept') || ''
+  const isHtml = accept.includes('text/html')
+
+  if (isHtml) {
+    const loginUrl = req.nextUrl.clone()
+    loginUrl.pathname = '/login'
+    loginUrl.search = ''
+    if (pathname !== '/') {
+      loginUrl.searchParams.set('next', pathname)
+    }
+    return NextResponse.redirect(loginUrl)
+  }
+
+  return NextResponse.json(
+    { error: 'Unauthorized. PIN required.', code: 'PIN_REQUIRED', version: '6.0.0' },
+    {
+      status: 401,
+      headers: {
+        'X-Auth-Required': 'true',
+      }
+    }
+  )
+}
+
+export const config = {
+  matcher: ['/((?!_next/static|_next/image|favicon.ico).*)'],
+}

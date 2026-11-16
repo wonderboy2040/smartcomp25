@@ -21,7 +21,7 @@
  *   - The browser NEVER talks to Firestore directly. All Firestore calls
  *     happen server-side in /api routes. The service-account credentials
  *     stay on the server.
- *   - The user-facing PIN gate (src/proxy.ts) is unchanged — it still
+ *   - The user-facing PIN gate (src/middleware.ts) is unchanged — it still
  *     protects every /api/* route with the smartcomp_auth cookie.
  */
 

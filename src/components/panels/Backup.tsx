@@ -69,7 +69,7 @@ export function BackupPanel() {
     setRunningBackup(true)
     try {
       // Use the cron-secret-protected POST /api/backup endpoint.
-      // We pass the secret via the x-cron-secret header (the proxy.ts
+      // We pass the secret via the x-cron-secret header (the middleware.ts
       // PUBLIC_PATHS list includes /api/cron/backup so this works without
       // the user being logged in — but they ARE logged in anyway since
       // they're viewing this panel).

@@ -2,10 +2,11 @@
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "framework": "nextjs",
   "buildCommand": "next build",
-  "installCommand": "bun install",
+  "installCommand": "ELECTRON_SKIP_BINARY_DOWNLOAD=1 npm ci --no-audit --no-fund",
   "regions": ["bom1"],
   "env": {
-    "NEXT_TELEMETRY_DISABLED": "1"
+    "NEXT_TELEMETRY_DISABLED": "1",
+    "ELECTRON_SKIP_BINARY_DOWNLOAD": "1"
   },
   "crons": [
     {

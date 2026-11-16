@@ -44,9 +44,9 @@ services:
       - key: FIREBASE_SERVICE_ACCOUNT_BASE64
         sync: false
       # OPTIONAL BUT RECOMMENDED: 4-digit PIN to lock the panel.
-      # When set, ALL /api/* routes (except public ones in proxy.ts) require
+      # When set, ALL /api/* routes (except public ones in middleware.ts) require
       # the smartcomp_auth cookie issued by /api/auth/login.
-      # ALSO: this PIN is checked by the Next.js server (proxy.ts) for defense-in-depth.
+      # ALSO: this PIN is checked by the Next.js server (middleware.ts) for defense-in-depth.
       - key: APP_PIN
         sync: false
       # REQUIRED IN PROD if you use the corresponding webhooks/crons:

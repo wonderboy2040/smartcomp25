@@ -56,7 +56,7 @@ export async function GET(req: NextRequest) {
     }
     const enc = new TextEncoder()
     // v3 is the current salt (matches /api/auth/login). Accept v1 too for any
-    // sessions that were issued before the v3 upgrade (proxy.ts supports both).
+    // sessions that were issued before the v3 upgrade (middleware.ts supports both).
     const salts = ['_smartcomp_v3_2026', '_smartcomp_v1']
     let ok = false
     for (const salt of salts) {

@@ -45,7 +45,7 @@ export async function GET(req: NextRequest) {
     const cookie = req.cookies.get(AUTH_COOKIE)?.value
     if (cookie) {
       // Compute expected tokens for both v3 (current) and v1 (legacy) salts.
-      // proxy.ts accepts either, so we must too.
+      // middleware.ts accepts either, so we must too.
       const v3 = await sha256Hex(pin + SALT_V3)
       const v1 = await sha256Hex(pin + SALT_V1)
       authenticated = safeEqual(cookie, v3) || safeEqual(cookie, v1)

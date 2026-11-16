@@ -12,7 +12,7 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ id:
     return NextResponse.json({
       ...po,
       lines: items,
-      grandTotal: items.reduce((s, l) => s + (Number(l.quantity) || 0) * (Number(l.costPrice) || 0), 0),
+      grandTotal: items.reduce((s, l) => s + (Number(l.quantity) || 0) * (Number(l.costPrice ?? l.rate) || 0), 0),
     })
   } catch (e: any) {
     return NextResponse.json({ error: e?.message }, { status: 500 })
@@ -48,7 +48,10 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
       supplier = suppliers.find((s) => String(s.id) === String(body.supplierId)) || null
     } catch {}
 
-    const grandTotal = lineItems.reduce((s, l) => s + (Number(l.quantity) || 0) * (Number(l.costPrice) || 0), 0)
+    const grandTotal = lineItems.reduce(
+      (s, l) => s + (Number(l.quantity) || 0) * (Number(l.costPrice ?? l.rate) || 0),
+      0,
+    )
     const status = body.sendWhatsApp === true ? 'sent' : String(existing.status || 'draft')
 
     const po = await updateRow('PurchaseOrders', id, {

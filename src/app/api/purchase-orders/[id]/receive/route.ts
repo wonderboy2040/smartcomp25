@@ -55,7 +55,8 @@ export async function POST(_req: NextRequest, { params }: { params: Promise<{ id
         lastPurchaseDate: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
       }
-      const cost = Number(line?.costPrice) || 0
+      // Older auto-generated POs stored the unit cost as `rate`; accept both.
+      const cost = Number(line?.costPrice ?? line?.rate) || 0
       if (cost > 0) {
         itemUpdate.costPrice = cost
         costUpdated += 1
@@ -67,7 +68,10 @@ export async function POST(_req: NextRequest, { params }: { params: Promise<{ id
       return NextResponse.json({ error: 'PO has no line items linked to stock — nothing to receive' }, { status: 400 })
     }
 
-    const grandTotal = lineItems.reduce((s, l) => s + (Number(l.quantity) || 0) * (Number(l.costPrice) || 0), 0)
+    const grandTotal = lineItems.reduce(
+      (s, l) => s + (Number(l.quantity) || 0) * (Number(l.costPrice ?? l.rate) || 0),
+      0,
+    )
     const receivedAt = new Date().toISOString()
 
     batch.set(db.collection('PurchaseOrders').doc(String(id)), {

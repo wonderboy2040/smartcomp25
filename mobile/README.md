@@ -130,7 +130,7 @@ across app restarts.
 
 ## Auth flow
 
-The web backend uses PIN-based auth (see `src/proxy.ts` + `src/app/api/auth/login/route.ts`):
+The web backend uses PIN-based auth (see `src/middleware.ts` + `src/app/api/auth/login/route.ts`):
 
 1. Mobile app POSTs `{ pin }` to `/api/auth/login`.
 2. The backend validates the PIN against the `APP_PIN` env var, hashes

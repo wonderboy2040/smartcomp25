@@ -64,7 +64,7 @@ function read(): RuntimeConfig {
   return cache
 }
 
-/** Kept for backward compat with src/proxy.ts and /api/config — always returns undefined now. */
+/** Kept for backward compat with src/middleware.ts and /api/config — always returns undefined now. */
 export function getAppsScriptUrl(): string | undefined {
   return undefined
 }
