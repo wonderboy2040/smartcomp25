@@ -11,8 +11,9 @@
  *
  * This module returns a tiny, self-contained HTML document (<50KB without
  * images, ~80KB with) that the iframe renders in <50ms. Browser-native
- * print (Ctrl+P / "Save as PDF") produces a pixel-perfect A4 page using
- * `@page { size: A4; margin: 12mm }` + `@media print` rules.
+ * print (Ctrl+P / "Save as PDF") reuses the preview's sheet width, padding
+ * and typography via `@page { size: A4; margin: 0 }` + `@media print` rules,
+ * so the printed page looks identical to the on-screen preview.
  *
  * Templates share the same color tokens as the PDF generator so the two
  * outputs look identical.
@@ -566,7 +567,7 @@ export async function generateInvoiceHtml(
   /* ===================== A4 PRINT LAYOUT ===================== */
   @page {
     size: A4 portrait;
-    margin: 6mm 8mm;
+    margin: 0;
   }
   * { box-sizing: border-box; }
   html, body {
@@ -982,11 +983,10 @@ export async function generateInvoiceHtml(
     line-height: 1.4;
   }
 
-  /* ===== Print rules — perfect A4 single-page fit ===== */
-  @page {
-    size: A4 portrait;
-    margin: 6mm;
-  }
+  /* ===== Print rules =====
+     The on-screen preview is the source of truth. Keep the exact same sheet
+     width, padding and font sizes when printing — otherwise "Print / Save as
+     PDF" renders a smaller, differently-spaced invoice than the preview. */
   @media print {
     html, body {
       background: #ffffff !important;
@@ -998,85 +998,21 @@ export async function generateInvoiceHtml(
       print-color-adjust: exact !important;
     }
     .toolbar { display: none !important; }
+
+    /* A4 is 210mm wide. The sheet's 8mm/10mm padding provides the page
+       margins, so printed content width matches the preview exactly. */
     .sheet {
-      width: 198mm !important;
-      max-width: 198mm !important;
-      min-height: auto !important;
+      width: 210mm !important;
+      max-width: 210mm !important;
+      min-height: 275mm !important;
       box-shadow: none !important;
       border: none !important;
       border-radius: 0 !important;
-      padding: 4mm 5mm !important;
+      padding: 8mm 10mm !important;
       margin: 0 !important;
-      /* Scale down slightly to ensure single-page fit on most content lengths */
-      font-size: 9.5px !important;
     }
-    .header {
-      margin: -4mm -5mm 6px -5mm !important;
-      padding: 6px 10px !important;
-      border-radius: 0 !important;
-    }
-    .header .shop-logo {
-      width: 52px !important;
-      height: 52px !important;
-    }
-    .header .shop-name { font-size: 16px !important; margin-bottom: 2px !important; }
-    .header .shop-info { font-size: 9px !important; line-height: 1.35 !important; }
-    .header .doc-title { font-size: 15px !important; margin-bottom: 3px !important; }
-    .header .doc-meta .meta-line { font-size: 9px !important; line-height: 1.4 !important; }
-    .header .doc-meta .badge { font-size: 7.5px !important; padding: 1.5px 6px !important; margin-top: 3px !important; }
 
-    .bill-section { gap: 5px !important; margin-bottom: 4px !important; }
-    .bill-box { padding: 5px 7px !important; min-height: 50px !important; }
-    .bill-box h3 { font-size: 8px !important; margin-bottom: 4px !important; padding-bottom: 2px !important; }
-    .bill-box .cname { font-size: 12px !important; margin-bottom: 2px !important; }
-    .bill-box .cline { font-size: 9px !important; line-height: 1.4 !important; }
-
-    .items-table { font-size: 9px !important; margin-bottom: 4px !important; }
-    .items-table thead th { padding: 4px 3px !important; font-size: 8.5px !important; }
-    .items-table tbody td { padding: 3px 3px !important; }
-    .items-table tbody td.num { font-size: 8.5px !important; }
-    .items-table tbody td.name .iname { font-weight: 600 !important; }
-
-    .hsn-block { margin-top: 4px !important; }
-    .hsn-block h3 { font-size: 8px !important; margin-bottom: 3px !important; }
-    .hsn-table { font-size: 8.5px !important; margin-bottom: 4px !important; }
-    .hsn-table th { padding: 3px 3px !important; font-size: 8px !important; }
-    .hsn-table td { padding: 3px !important; }
-
-    .bottom-split { gap: 6px !important; margin-top: 4px !important; }
-    .words-block .label { font-size: 7px !important; margin-bottom: 1px !important; }
-    .words-block .text { font-size: 9.5px !important; line-height: 1.3 !important; }
-    .totals-table { font-size: 9px !important; }
-    .totals-table td { padding: 3px 5px !important; }
-    .totals-table tr.grand-total td { font-size: 11px !important; padding: 4px 6px !important; }
-
-    .info-row { gap: 6px !important; margin-top: 4px !important; padding-top: 4px !important; }
-    .info-block h4 { font-size: 7.5px !important; margin-bottom: 2px !important; }
-    .info-block div { font-size: 8px !important; line-height: 1.35 !important; }
-    .info-block .terms-text { font-size: 8px !important; line-height: 1.35 !important; }
-    .qr-block .qr-img { width: 48px !important; height: 48px !important; }
-    .qr-block .qr-amt { font-size: 10px !important; }
-    .qr-block .qr-text { font-size: 8px !important; }
-
-    .signature { margin-top: 6px !important; }
-    .signature .sig { width: 160px !important; }
-    .signature .sig-line { padding-top: 2px !important; }
-    .signature .sig-for { font-size: 9px !important; margin-bottom: 1px !important; }
-    .signature .sig-auth { font-size: 8px !important; }
-
-    .ad-banner { padding: 5px 8px !important; min-height: 40px !important; margin-bottom: 4px !important; }
-    .ad-banner img.ad-img { height: 40px !important; }
-    .ad-banner .ad-headline { font-size: 10px !important; margin-bottom: 1px !important; }
-    .ad-banner .ad-sub { font-size: 8px !important; line-height: 1.3 !important; }
-    .ad-banner.poster-banner img { max-height: 50px !important; object-fit: contain !important; }
-    .ad-banner.grid-4 .ad-tile img { height: 36px !important; }
-    .ad-banner.featured { grid-template-columns: 100px 1fr !important; gap: 8px !important; }
-    .ad-banner.featured .ad-left .ad-headline { font-size: 12px !important; }
-    .ad-banner.featured .ad-right .ad-tile img { height: 32px !important; }
-
-    .footer { margin-top: 4px !important; padding-top: 4px !important; font-size: 7.5px !important; }
-
-    /* Avoid breaking inside these blocks */
+    /* Avoid awkward splits, but otherwise keep the preview typography. */
     .items-table tbody tr,
     .bill-box,
     .info-block,
@@ -1090,17 +1026,12 @@ export async function generateInvoiceHtml(
       break-inside: avoid !important;
       page-break-inside: avoid !important;
     }
-    /* Keep bottom section together on same page if possible */
-    .bottom-split {
-      break-before: avoid !important;
-    }
-    /* Repeat table header on each printed page */
     thead { display: table-header-group; }
     tfoot { display: table-footer-group; }
   }
 
-  /* Responsive on small screens — keep A4 ratio but shrink to fit */
-  @media (max-width: 820px) {
+  /* Responsive on small screens only — print must keep the desktop layout */
+  @media screen and (max-width: 820px) {
     body { padding: 6px; }
     .sheet {
       width: 100%;
@@ -1122,8 +1053,8 @@ export async function generateInvoiceHtml(
     <div class="title">${escapeHtml(docTitle)} &middot; ${escapeHtml(data.number)}</div>
     <div class="actions">
       <button onclick="window.print()" class="primary">🖨 Print / Save as PDF</button>
-      <a href="/api/pdf/${encodeURIComponent(data.docId || '')}?type=${isService ? 'service' : data.docType}&template=${encodeURIComponent(tpl.id)}&banner=${encodeURIComponent(data.adBannerVariant || 'flyer')}" download>⬇ Download PDF</a>
-      <a href="/api/pdf/${encodeURIComponent(data.docId || '')}?type=${isService ? 'service' : data.docType}&template=${encodeURIComponent(tpl.id)}&banner=${encodeURIComponent(data.adBannerVariant || 'flyer')}" target="_blank">↗ Open PDF</a>
+      <button id="download-pdf-btn" onclick="downloadPdf()">⬇ Download PDF</button>
+      <button onclick="window.open(window.location.href, '_blank')">↗ Open in New Tab</button>
     </div>
   </div>
 
@@ -1227,6 +1158,36 @@ export async function generateInvoiceHtml(
   <script>
     // Auto-print shortcut: Ctrl/Cmd+P works natively. We also expose window.printDoc().
     window.printDoc = function() { window.print(); };
+
+    // Download a real PDF when the server has WeasyPrint. If the server PDF
+    // engine is unavailable, fall back to the browser print dialog using THIS
+    // same HTML, so the saved PDF always keeps the preview design.
+    window.downloadPdf = async function() {
+      var btn = document.getElementById('download-pdf-btn');
+      if (btn) { btn.disabled = true; btn.textContent = 'Preparing...'; }
+      try {
+        var resp = await fetch(window.location.pathname + window.location.search, {
+          method: 'POST',
+          credentials: 'same-origin'
+        });
+        var ct = resp.headers.get('content-type') || '';
+        if (resp.ok && ct.indexOf('application/pdf') !== -1) {
+          var blob = await resp.blob();
+          var url = URL.createObjectURL(blob);
+          var a = document.createElement('a');
+          a.href = url;
+          a.download = (document.title || 'document').replace(/[^a-zA-Z0-9._-]+/g, '-') + '.pdf';
+          document.body.appendChild(a);
+          a.click();
+          a.remove();
+          setTimeout(function() { URL.revokeObjectURL(url); }, 60000);
+          if (btn) { btn.disabled = false; btn.textContent = '⬇ Download PDF'; }
+          return;
+        }
+      } catch (e) {}
+      if (btn) { btn.disabled = false; btn.textContent = '⬇ Download PDF'; }
+      window.print();
+    };
     // Keyboard shortcut: 'p' to print
     document.addEventListener('keydown', function(e) {
       if ((e.ctrlKey || e.metaKey) && e.key === 'p') {

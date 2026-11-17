@@ -106,90 +106,38 @@ export function DocumentHtmlViewer({ docId, docType = 'invoice', title, onClose,
     }
   }, [iframeUrl])
 
-  // Save as PDF — downloads a REAL .pdf file (not a print dialog). The PDF
-  // is rendered server-side using the SAME HTML engine as the on-screen
-  // preview (doc-html.ts → WeasyPrint), so the output is byte-for-byte
-  // identical to what the user sees. Falls back to the jsPDF engine if
-  // WeasyPrint is not installed on the server.
-  //
-  // Why not window.open() + autoprint=1? That approach (the previous code)
-  // was unreliable:
-  //   1. Popup blockers silently swallow window.open() — the new tab never
-  //      opens and the user sees nothing happen.
-  //   2. Even when popups are allowed, the user has to manually pick
-  //      "Save as PDF" in the print dialog. That's an extra click and the
-  //      output filename is the URL, not "Invoice-SCSS-001.pdf".
-  //   3. The `noopener` flag in the previous window.open() call prevented
-  //      the parent window from accessing the popup, so any auto-print
-  //      script in the new tab had no fallback if it failed.
-  //
-  // The new flow: fetch() the PDF bytes, create a Blob URL, and click a
-  // hidden <a download> element. This downloads a real file with the
-  // correct filename, works on all browsers, and never requires popups.
+  // Save as PDF — try the server-side WeasyPrint endpoint first (a real .pdf
+  // rendered from the SAME HTML as the preview). When that engine is not
+  // available, print the iframe itself so the saved PDF is visually identical
+  // to the preview instead of falling back to the old jsPDF layout.
   const [downloading, setDownloading] = useState(false)
   const handleSavePdf = useCallback(async () => {
     if (!docId || downloading) return
     setDownloading(true)
     try {
-      // Build the PDF URL. Prefer the new POST /api/doc-html/[id] endpoint
-      // (renders with WeasyPrint — same engine as preview). Fall back to
-      // the old GET /api/pdf/[id] (jsPDF engine) if the POST fails.
       const postUrl = `/api/doc-html/${encodeURIComponent(docId)}?type=${docType}&template=${templateId}&banner=${bannerVariant}&gstMode=${gstMode}`
       let blob: Blob | null = null
-      let usedEngine: 'weasyprint' | 'jspdf' | 'browser-print' = 'browser-print'
       try {
         const resp = await fetch(postUrl, { method: 'POST' })
         if (resp.ok) {
           const ct = resp.headers.get('Content-Type') || ''
           if (ct.includes('application/pdf')) {
             blob = await resp.blob()
-            usedEngine = 'weasyprint'
           }
         }
       } catch (postErr: any) {
-        // POST endpoint failed — fall through to GET /api/pdf/[id]
         console.warn('[handleSavePdf] POST /api/doc-html failed:', postErr?.message)
       }
 
-      // Fallback: old jsPDF endpoint
       if (!blob) {
-        const fallbackUrl = docType === 'service'
-          ? `/api/service-pdf/${encodeURIComponent(docId)}`
-          : `/api/pdf/${encodeURIComponent(docId)}?type=${docType}&template=${templateId}&banner=${bannerVariant}&gstMode=${gstMode}`
-        try {
-          const resp = await fetch(fallbackUrl)
-          if (resp.ok) {
-            const ct = resp.headers.get('Content-Type') || ''
-            if (ct.includes('application/pdf') || ct.includes('octet-stream')) {
-              blob = await resp.blob()
-              usedEngine = 'jspdf'
-            }
-          }
-        } catch (fbErr: any) {
-          console.warn('[handleSavePdf] GET fallback failed:', fbErr?.message)
-        }
-      }
-
-      // Final fallback: open the doc-html in a new tab with autoprint=1.
-      // This still works if the server can't render PDFs at all — the
-      // user uses the browser's "Save as PDF" in the print dialog.
-      if (!blob) {
-        const url = `${iframeUrl}${iframeUrl.includes('?') ? '&' : '?'}autoprint=1`
-        const win = window.open(url, '_blank')
-        if (!win) {
-          toast({
-            title: 'PDF download unavailable',
-            description: 'Server PDF rendering is disabled and popups are blocked. Allow popups, or click "Print A4" → "Save as PDF".',
-            variant: 'destructive',
-            duration: 8000,
-          })
-        } else {
-          toast({
-            title: 'Opening print dialog...',
-            description: 'Choose "Save as PDF" as the destination to download.',
-            duration: 5000,
-          })
-        }
+        // Server PDF engine unavailable. Print the exact iframe content so
+        // the user's "Save as PDF" output keeps the preview design.
+        toast({
+          title: 'Save as PDF',
+          description: 'Choose "Save as PDF" in the print dialog — it will match the preview.',
+          duration: 6000,
+        })
+        setTimeout(() => handlePrint(), 50)
         return
       }
 
@@ -209,10 +157,9 @@ export function DocumentHtmlViewer({ docId, docType = 'invoice', title, onClose,
       // to start. 60s is more than enough for any browser.
       setTimeout(() => URL.revokeObjectURL(downloadUrl), 60000)
 
-      const engineLabel = usedEngine === 'weasyprint' ? 'preview-quality' : 'standard'
       toast({
         title: `PDF downloaded ✓`,
-        description: `${filename} • ${engineLabel}`,
+        description: `${filename} • preview-quality`,
         duration: 3500,
       })
     } catch (e: any) {
@@ -226,7 +173,7 @@ export function DocumentHtmlViewer({ docId, docType = 'invoice', title, onClose,
     } finally {
       setDownloading(false)
     }
-  }, [docId, docType, templateId, bannerVariant, gstMode, iframeUrl, toast, downloading])
+  }, [docId, docType, templateId, bannerVariant, gstMode, toast, downloading, handlePrint])
 
   const docTypeLabel = docType === 'quotation' ? 'Quotation' : docType === 'service' ? 'Service Invoice' : 'Invoice'
 
@@ -389,7 +336,7 @@ export function DocumentHtmlViewer({ docId, docType = 'invoice', title, onClose,
           className={`w-full h-full border-0 transition-opacity duration-200 ${iframeLoaded && !iframeError ? 'opacity-100' : 'opacity-0'}`}
           style={{ background: '#e2e8f0' }}
           title={`${docTypeLabel} Preview`}
-          sandbox="allow-same-origin allow-scripts allow-popups allow-modals allow-popups-to-escape-sandbox"
+          sandbox="allow-same-origin allow-scripts allow-popups allow-modals allow-downloads allow-popups-to-escape-sandbox"
         />
       </div>
     </div>
